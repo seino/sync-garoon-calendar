@@ -1,0 +1,23 @@
+{
+  "garoon": {
+    "baseUrl": "https://your-company.cybozu.com",
+    "apiToken": "YOUR_API_TOKEN",
+    "username": "",
+    "password": ""
+  },
+  "google": {
+    "calendarId": "primary",
+    "credentials": "../credentials/google-service-account.json"
+  },
+  "sync": {
+    "days": 30,
+    "excludePrivate": true
+  },
+  "teams": {
+    "webhookUrl": "",
+    "notifyOnError": true
+  },
+  "database": {
+    "path": "./data/sync.db"
+  }
+}
