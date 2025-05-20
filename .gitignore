@@ -1,30 +1,45 @@
 # 依存関係
-node_modules
+node_modules/
 package-lock.json
+yarn.lock
 
 # ビルド出力
-dist
+dist/
+build/
+*.tsbuildinfo
 
-# 環境設定
+# 環境変数
 .env
-config/config.json
+.env.*
+!.env.example
 
 # 認証情報
-credentials/*.json
+credentials/
+!credentials/README.md
 
-# ログファイル
-logs
+# ログ
+logs/
 *.log
-
-# テストカバレッジ
-coverage
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # エディタ設定
-.vscode
-.idea
+.idea/
+.vscode/
 *.swp
 *.swo
-
-# OS固有のファイル
 .DS_Store
-Thumbs.db
+
+# データベース
+*.db
+*.sqlite
+*.sqlite3
+
+# テストカバレッジ
+coverage/
+
+# その他
+.cache/
+.temp/
+tmp/
