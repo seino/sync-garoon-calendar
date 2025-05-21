@@ -8,11 +8,14 @@
     "start": "node dist/scripts/syncGoogle.js",
     "dev": "ts-node-dev --respawn src/scripts/syncGoogle.ts",
     "test": "jest",
-    "lint": "eslint src/**/*.ts"
+    "lint": "eslint src/**/*.ts",
+    "test:garoon": "ts-node src/scripts/test-garoon.ts",
+    "test:garoon:org": "ts-node src/scripts/test-garoon-organization.ts"
   },
   "dependencies": {
     "axios": "^1.6.2",
     "better-sqlite3": "^11.9.1",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.3.1",
     "google-auth-library": "^9.15.1",
     "googleapis": "^128.0.0",

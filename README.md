@@ -81,6 +81,19 @@ npm run dev
 npx ts-node src/scripts/test-calendar.ts
 ```
 
+#### ガルーン API 接続テスト
+
+```bash
+# ガルーンAPIへの接続をテスト（ユーザーID指定）
+npm run test:garoon
+
+# ガルーンAPIへの接続をテスト（組織ID指定）
+npm run test:garoon:org --orgId=4
+
+# 組織ID指定の例（直接実行）
+npx ts-node src/scripts/test-garoon-organization.ts --orgId=4 --days=14
+```
+
 #### Google 認証トークンの取得
 
 ```bash
@@ -112,6 +125,10 @@ GAROON_API_TOKEN=                       # 機密情報
 GAROON_USERNAME=                        # 機密情報
 GAROON_PASSWORD=                        # 機密情報
 
+# Garoonターゲット設定（省略可、デフォルトはユーザーID=2）
+GAROON_TARGET_TYPE=user                 # 'user'または'organization'
+GAROON_TARGET_ID=2                      # ユーザーIDまたは組織ID
+
 # Google認証情報
 GOOGLE_CREDENTIALS_PATH=                # サービスアカウント認証情報ファイルのパス（メイン同期処理に使用）
 GOOGLE_CALENDAR_ID=                     # 同期先のカレンダーID
@@ -132,6 +149,8 @@ TEAMS_WEBHOOK_URL=                      # 機密情報
 {
   garoon: {
     baseUrl: 'https://your-company.cybozu.com',  // Garoonのベースドメイン
+    targetType: 'user',                         // 予定取得対象タイプ（'user'または'organization'）
+    targetId: '2',                               // 予定取得対象ID（ユーザーIDまたは組織ID）
   },
   google: {
     calendarId: 'primary',  // 同期先のカレンダーID

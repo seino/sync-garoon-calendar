@@ -35,6 +35,17 @@ export function loadConfig(configPath?: string): AppConfig {
       config.garoon.password = process.env.GAROON_PASSWORD;
     }
 
+    // ターゲットタイプとID設定
+    if (process.env.GAROON_TARGET_TYPE) {
+      config.garoon.targetType = process.env.GAROON_TARGET_TYPE as
+        | 'user'
+        | 'organization';
+    }
+
+    if (process.env.GAROON_TARGET_ID) {
+      config.garoon.targetId = process.env.GAROON_TARGET_ID;
+    }
+
     // Google認証情報
     if (process.env.GOOGLE_CREDENTIALS_PATH) {
       config.google.credentials = process.env.GOOGLE_CREDENTIALS_PATH;
@@ -199,6 +210,8 @@ export function getDefaultConfig(): AppConfig {
       apiToken: '', // 機密情報のため.envで設定
       username: '', // 機密情報のため.envで設定
       password: '', // 機密情報のため.envで設定
+      targetType: 'user', // デフォルトはユーザー指定
+      targetId: '2', // デフォルトはユーザーID=2
     },
     google: {
       calendarId: 'primary',
