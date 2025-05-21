@@ -38,4 +38,6 @@ export interface GaroonAuthConfig {
   apiToken?: string;
   username?: string;
   password?: string;
+  targetId?: string;
+  targetType?: 'user' | 'organization';
 }
