@@ -1,22 +1,22 @@
 # Sync Garoon Calendar
 
-ガルーンのスケジュールを外部カレンダーサービスと同期するためのTypeScriptツールです。現在はGoogle Calendarとの同期に対応しています。将来的にはOutlookとの同期も実装予定です。
+ガルーンのスケジュールを外部カレンダーサービスと同期するための TypeScript ツールです。現在は Google Calendar との同期に対応しています。将来的には Outlook との同期も実装予定です。
 
 ## 機能
 
-- Garoonから Google Calendarへのスケジュール同期
+- Garoon から Google Calendar へのスケジュール同期
 - イベントの追加・更新・削除に対応
-- Microsoft Teamsへの通知機能
+- Microsoft Teams への通知機能
 - 重複登録防止機能
-- TypeScriptによる型安全性
+- TypeScript による型安全性
 
 ## 前提条件
 
-- Node.js 14.0以上
-- TypeScript 4.5以上
-- Garoon APIアクセス権限
-- Google Calendar APIアクセス用のサービスアカウント
-- (任意) Microsoft TeamsのWebhook URL
+- Node.js 14.0 以上
+- TypeScript 4.5 以上
+- Garoon API アクセス権限
+- Google Calendar API アクセス用のサービスアカウント
+- (任意) Microsoft Teams の Webhook URL
 
 ## インストール方法
 
@@ -33,17 +33,17 @@ cd sync-garoon-calendar
 npm install
 ```
 
-3. 設定ファイルの作成:
+3. 環境変数の設定:
 
 ```bash
-cp config/config.example.json config/config.json
+cp .env.example .env
 ```
 
-4. `config.json`を編集して必要な設定を行います。
+4. `.env`ファイルを編集して必要な設定を行います。
 
-5. Google Calendar APIの認証情報を配置:
+5. Google Calendar API の認証情報を配置:
 
-サービスアカウントのJSONファイルを`credentials/`ディレクトリにコピーします。
+サービスアカウントの JSON ファイルを`credentials/`ディレクトリにコピーします。
 
 ## 使い方
 
@@ -70,6 +70,104 @@ node dist/scripts/syncGoogle.js
 npm run dev
 ```
 
+### ユーティリティスクリプト
+
+このプロジェクトには以下のユーティリティスクリプトが含まれています。
+
+#### Google Calendar のテスト
+
+```bash
+# Google Calendarへの操作（作成・更新・削除）をテストします
+npx ts-node src/scripts/test-calendar.ts
+```
+
+#### Google 認証トークンの取得
+
+```bash
+# OAuth2.0認証トークンを取得します
+npx ts-node src/scripts/get-google-token.ts
+```
+
+#### カレンダー一覧の取得
+
+```bash
+# アクセス可能なGoogleカレンダーの一覧を取得します
+npx ts-node src/scripts/list-calendars.ts
+```
+
+## 設定方法
+
+このアプリケーションは環境変数による設定をサポートしています。`.env`ファイルを作成して設定値を指定します。
+
+### 設定の考え方
+
+このプロジェクトでは、**機密情報のみを環境変数**で管理し、その他の設定はコード内のデフォルト値で管理します。
+
+### 環境変数で管理する設定（機密情報）
+
+```bash
+# Garoon認証情報（APIトークンまたはユーザー名/パスワードのいずれかが必要）
+GAROON_API_TOKEN=                       # 機密情報
+# または
+GAROON_USERNAME=                        # 機密情報
+GAROON_PASSWORD=                        # 機密情報
+
+# Google認証情報
+GOOGLE_CREDENTIALS_PATH=                # サービスアカウント認証情報ファイルのパス（メイン同期処理に使用）
+GOOGLE_CALENDAR_ID=                     # 同期先のカレンダーID
+GOOGLE_CLIENT_ID=                       # OAuth2.0クライアントID（スクリプト用、Google APIコンソールから取得）
+GOOGLE_CLIENT_SECRET=                   # OAuth2.0クライアントシークレット（スクリプト用）
+
+# Teams通知設定（省略可）
+TEAMS_WEBHOOK_URL=                      # 機密情報
+```
+
+### コード内のデフォルト値で管理する設定
+
+以下の設定は `src/common/config.ts` 内のデフォルト値として管理されています。
+変更する必要がある場合は、ソースコードを修正するか、`config.json` ファイルを作成して上書きします。
+
+```javascript
+// デフォルト値の例
+{
+  garoon: {
+    baseUrl: 'https://your-company.cybozu.com',  // Garoonのベースドメイン
+  },
+  google: {
+    calendarId: 'primary',  // 同期先のカレンダーID
+  },
+  sync: {
+    days: 30,              // 何日分の予定を同期するか
+    excludePrivate: true,  // プライベート予定を除外するかどうか
+    intervalMinutes: 15,   // 定期実行間隔（分）
+  },
+  teams: {
+    notifyOnError: true,   // エラー発生時に通知するかどうか
+  },
+  database: {
+    path: './data/sync.db', // データベースファイルパス
+  }
+}
+```
+
+### Google 認証情報について
+
+このプロジェクトでは 2 種類の認証方式をサポートしています。
+
+1. **サービスアカウント認証**（メインの同期処理用）
+
+   - `GOOGLE_CREDENTIALS_PATH`で指定された JSON ファイルを使用
+   - バックグラウンド処理や定期実行に適している
+
+2. **OAuth2.0 クライアント認証**（補助スクリプト用）
+   - `GOOGLE_CLIENT_ID`と`GOOGLE_CLIENT_SECRET`を使用
+   - `src/scripts/get-google-token.ts`などのユーティリティツールで使用
+   - ユーザー許可が必要な処理に使用
+
+### 後方互換性
+
+旧バージョンとの互換性のため、従来の`config.json`による設定も引き続きサポートされていますが、新しいプロジェクトでは機密情報のみを環境変数で管理し、その他の設定はコード内のデフォルト値を使用することを推奨します。
+
 ### 定期実行の設定
 
 このプロジェクトには`node-cron`が含まれており、アプリケーション内で定期実行を設定できます。
@@ -94,7 +192,7 @@ console.log('スケジューラーが起動しました。Ctrl+Cで終了でき�
 node dist/scripts/schedule.js
 ```
 
-#### サービスとして実行 (PM2を使用)
+#### サービスとして実行 (PM2 を使用)
 
 ```bash
 # PM2のインストール
@@ -116,7 +214,7 @@ pm2 save
 sync-garoon-calendar/
 ├── src/                        # TypeScriptソースコード
 │   ├── common/                 # 共通コード
-│   │   ├── config.ts           # 設定管理
+│   │   ├── config.ts           # 設定管理（環境変数対応）
 │   │   ├── database.ts         # データベース操作
 │   │   ├── garoon.ts           # Garoon API操作
 │   │   └── notification.ts     # 通知機能
@@ -139,8 +237,7 @@ sync-garoon-calendar/
 │
 ├── dist/                       # コンパイル後のJavaScriptコード
 │
-├── config/                     # 設定ファイル
-│   └── config.example.json     # 設定ファイル例
+├── .env.example                # 環境変数設定例
 │
 ├── credentials/                # 認証情報
 │   └── README.md               # 認証情報の説明
@@ -196,15 +293,15 @@ npm test
 ### 使用している主なパッケージ
 
 - **typescript**: 静的型付け
-- **axios**: HTTP通信用
-- **googleapis**: Google Calendar API用
-- **ms-teams-webhook**: Microsoft Teams通知用
+- **axios**: HTTP 通信用
+- **googleapis**: Google Calendar API 用
+- **ms-teams-webhook**: Microsoft Teams 通知用
 - **better-sqlite3**: データベース操作用
 - **dotenv**: 環境変数管理用
 - **node-cron**: 定期実行用
-- **jest & ts-jest**: TypeScriptでのテスト用
+- **jest & ts-jest**: TypeScript でのテスト用
 
-### package.jsonの例
+### package.json の例
 
 ```json
 {
@@ -244,7 +341,7 @@ npm test
 }
 ```
 
-### tsconfig.jsonの例
+### tsconfig.json の例
 
 ```json
 {
@@ -263,8 +360,6 @@ npm test
   "exclude": ["node_modules", "tests", "dist"]
 }
 ```
-
-このプロジェクトはMITライセンスの下で公開されています。詳細は[LICENSE](LICENSE)ファイルをご覧ください。
 
 ## 謝辞
 

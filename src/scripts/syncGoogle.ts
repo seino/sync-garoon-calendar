@@ -9,7 +9,8 @@ async function main(): Promise<void> {
   console.log('ガルーン -> Google Calendar 同期を開始します...');
 
   try {
-    // コマンドライン引数から設定ファイルパスを取得（オプション）
+    // コマンドライン引数から設定ファイルパスを取得（旧システムとの後方互換性のため）
+    // 注：新しいシステムでは.envファイルを使用することを推奨
     const configArg = process.argv.find((arg) => arg.startsWith('--config='));
     const configPath = configArg ? configArg.split('=')[1] : undefined;
 

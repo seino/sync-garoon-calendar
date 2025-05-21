@@ -41,7 +41,13 @@ export interface GoogleEvent {
   };
 }
 
+export interface GoogleOAuthConfig {
+  clientId: string;
+  clientSecret: string;
+}
+
 export interface GoogleCalendarConfig {
   calendarId: string;
   credentials: string;
+  oauth?: GoogleOAuthConfig;
 }
