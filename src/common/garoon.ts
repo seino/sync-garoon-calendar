@@ -1,16 +1,37 @@
 // Garoon API操作
 
-import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance } from 'axios';
 import {
   GaroonAuthConfig,
   GaroonEvent,
   GaroonScheduleResponse,
 } from '../types/garoon';
+import { withRetry } from './retry';
 
 export class GaroonClient {
   private client: AxiosInstance;
   private baseUrl: string;
   private authConfig: GaroonAuthConfig;
+
+  /**
+   * URLをマスキングして安全に表示
+   * @param url マスキングするURL
+   * @returns マスキングされたURL
+   */
+  private maskUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      // ホスト名の一部をマスク
+      const host = parsed.hostname;
+      const maskedHost =
+        host.length > 4
+          ? host.substring(0, 2) + '***' + host.substring(host.length - 2)
+          : '***';
+      return `${parsed.protocol}//${maskedHost}`;
+    } catch {
+      return '***invalid-url***';
+    }
+  }
 
   constructor(config: GaroonAuthConfig) {
     this.authConfig = config;
@@ -23,10 +44,21 @@ export class GaroonClient {
     this.baseUrl = config.baseUrl.replace(/\/$/, ''); // 末尾のスラッシュを削除
 
     // URLが有効か確認
+    let parsedUrl: URL;
     try {
-      new URL(this.baseUrl);
+      parsedUrl = new URL(this.baseUrl);
     } catch (e) {
-      throw new Error(`ガルーンのベースURLが不正です: ${this.baseUrl}`);
+      throw new Error(`ガルーンのベースURLが不正です: ${this.maskUrl(this.baseUrl)}`);
+    }
+
+    // HTTPSの検証（本番環境では必須）
+    if (
+      parsedUrl.protocol !== 'https:' &&
+      process.env.NODE_ENV !== 'development'
+    ) {
+      throw new Error(
+        'セキュリティエラー: ガルーンのURLはHTTPSである必要があります'
+      );
     }
 
     // Axiosインスタンスの作成
@@ -41,12 +73,13 @@ export class GaroonClient {
     // 認証の設定
     this.setupAuth();
 
-    // ターゲット設定の表示
+    // ターゲット設定の表示（機密情報はマスキング）
     const targetType = this.authConfig.targetType || 'user';
-    const targetId = this.authConfig.targetId || '2';
 
-    console.log(`ガルーンAPIクライアントを初期化しました: ${this.baseUrl}`);
-    console.log(`ターゲットタイプ: ${targetType}, ターゲットID: ${targetId}`);
+    console.log(
+      `ガルーンAPIクライアントを初期化しました: ${this.maskUrl(this.baseUrl)}`
+    );
+    console.log(`ターゲットタイプ: ${targetType}`);
   }
 
   /**
@@ -67,13 +100,9 @@ export class GaroonClient {
       this.client.defaults.headers.common['X-Cybozu-Authorization'] = apiToken;
       console.log('認証方式: APIトークン認証を使用');
     } else {
-      // テスト接続用の認証情報（開発目的のみ）
-      console.warn(
-        '警告: 設定された認証情報がないため、テスト用認証情報を使用します'
+      throw new Error(
+        '認証情報が設定されていません。GAROON_API_TOKENまたはGAROON_USERNAMEとGAROON_PASSWORDを設定してください'
       );
-      this.client.defaults.headers.common['X-Cybozu-Authorization'] =
-        'REDACTED_CREDENTIALS';
-      console.log('認証方式: テスト用認証を使用');
     }
   }
 
@@ -121,9 +150,10 @@ export class GaroonClient {
           requestParams.nextEventId = nextEventId;
         }
 
-        const response = await this.client.get<GaroonScheduleResponse>(
-          endpoint,
-          { params: requestParams }
+        const response = await withRetry(() =>
+          this.client.get<GaroonScheduleResponse>(endpoint, {
+            params: requestParams,
+          })
         );
         const {
           events,
@@ -168,7 +198,9 @@ export class GaroonClient {
   async getEvent(eventId: string): Promise<GaroonEvent> {
     try {
       const endpoint = `/api/v1/schedule/events/${eventId}`;
-      const response = await this.client.get<GaroonEvent>(endpoint);
+      const response = await withRetry(() =>
+        this.client.get<GaroonEvent>(endpoint)
+      );
       return response.data;
     } catch (error) {
       if (axios.isAxiosError(error) && error.response?.status === 404) {
@@ -190,25 +222,21 @@ export class GaroonClient {
    */
   async testConnection(): Promise<boolean> {
     try {
-      // 接続情報をデバッグ表示
-      console.log('デバッグ: Garoon接続情報');
-      console.log(`デバッグ: ベースURL: ${this.baseUrl}`);
-      console.log(
-        `デバッグ: エンドポイント: ${this.baseUrl}/api/v1/schedule/events`
-      );
+      // 接続情報をデバッグ表示（機密情報はマスキング）
+      console.log('デバッグ: Garoon接続テスト開始');
+      console.log(`デバッグ: ベースURL: ${this.maskUrl(this.baseUrl)}`);
 
       // 認証方式の表示（機密情報は表示しない）
       const authHeaders = this.client.defaults.headers.common;
       const authMethod = authHeaders['X-Cybozu-Authorization']
         ? 'X-Cybozu-Authorization'
         : authHeaders['Authorization']
-        ? 'Authorization (Basic)'
-        : 'なし';
+          ? 'Authorization (Basic)'
+          : 'なし';
       console.log(`デバッグ: 認証方式: ${authMethod}`);
 
       // テスト用のシンプルなパラメータ
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      // 設定からtargetIdとtargetTypeを取得（デフォルト値はユーザーID='2'）
       const targetId = this.authConfig.targetId || '2';
       const targetType = this.authConfig.targetType || 'user';
 
@@ -220,31 +248,25 @@ export class GaroonClient {
         fields: 'eventMenu,subject,notes,start,end',
       };
 
-      console.log(`デバッグ: リクエストパラメータ: ${JSON.stringify(params)}`);
-
       // テスト用に直接エンドポイントを呼び出し
       const endpoint = '/api/v1/schedule/events';
-      const response = await this.client.get(endpoint, { params });
+      const response = await withRetry(() =>
+        this.client.get(endpoint, { params })
+      );
 
       console.log(`デバッグ: ステータスコード: ${response.status}`);
-      console.log(
-        `デバッグ: データ取得成功: ${response.data ? 'はい' : 'いいえ'}`
-      );
       console.log(`デバッグ: イベント数: ${response.data.events?.length || 0}`);
 
       return true;
     } catch (error) {
-      console.error('Garoon接続テストエラー:', error);
+      console.error('Garoon接続テストエラー');
       if (axios.isAxiosError(error)) {
         if (error.response) {
           console.error(`ステータスコード: ${error.response.status}`);
-          console.error(`エラーデータ: ${JSON.stringify(error.response.data)}`);
         } else if (error.request) {
           console.error('レスポンスなし: サーバーに接続できませんでした');
         }
         console.error(`エラーメッセージ: ${error.message}`);
-        console.error(`リクエストURL: ${error.config?.url}`);
-        console.error(`リクエスト方法: ${error.config?.method}`);
       }
       // エラーを再スローして詳細情報を伝搬
       throw error;

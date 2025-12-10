@@ -63,29 +63,49 @@ export class SyncService {
       const events = await this.garoon.getSchedule(startDate, endDate);
       console.log(`ガルーンから${events.length}件のイベントを取得しました`);
 
-      // イベントを同期
-      for (const event of events) {
-        // 非公開イベントの除外設定
-        if (
-          this.config.sync.excludePrivate &&
-          event.visibilityType === 'PRIVATE'
-        ) {
-          continue;
-        }
+      // ガルーンイベントIDのセットを作成（削除検出用）
+      const garoonEventIds = new Set(events.map((e) => e.id));
 
-        try {
-          await this.syncEvent(event);
-        } catch (error) {
-          this.syncStats.errors++;
-          console.error(`イベント同期エラー (ID: ${event.id}):`, error);
-          this.db.logSync(
-            'ERROR',
-            event.id,
-            undefined,
-            error instanceof Error ? error.message : String(error)
-          );
-        }
+      // 非公開イベントを除外
+      const filteredEvents = events.filter(
+        (event) =>
+          !(
+            this.config.sync.excludePrivate &&
+            event.visibilityType === 'PRIVATE'
+          )
+      );
+
+      // バッチサイズ（並列実行数）
+      const BATCH_SIZE = 5;
+
+      // イベントをバッチ処理で同期
+      for (let i = 0; i < filteredEvents.length; i += BATCH_SIZE) {
+        const batch = filteredEvents.slice(i, i + BATCH_SIZE);
+
+        const results = await Promise.allSettled(
+          batch.map((event) => this.syncEvent(event))
+        );
+
+        // エラー処理
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            const event = batch[index];
+            this.syncStats.errors++;
+            console.error(`イベント同期エラー (ID: ${event.id}):`, result.reason);
+            this.db.logSync(
+              'ERROR',
+              event.id,
+              undefined,
+              result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason)
+            );
+          }
+        });
       }
+
+      // Garoonから削除されたイベントをGoogle Calendarから削除
+      await this.deleteRemovedEvents(garoonEventIds);
 
       // 同期結果を通知
       const { added, updated, deleted, errors } = this.syncStats;
@@ -179,6 +199,67 @@ export class SyncService {
   }
 
   /**
+   * Garoonから削除されたイベントをGoogle Calendarから削除
+   * @param currentGaroonEventIds 現在のガルーンイベントIDのセット
+   */
+  private async deleteRemovedEvents(
+    currentGaroonEventIds: Set<string>
+  ): Promise<void> {
+    // データベースから全ての同期済みイベントを取得
+    const syncedEvents = this.db.getAllSyncedEvents();
+
+    for (const syncedEvent of syncedEvents) {
+      // ガルーンに存在しないイベントを検出
+      if (!currentGaroonEventIds.has(syncedEvent.garoonEventId)) {
+        try {
+          // Google Calendarから削除
+          await this.googleCalendar.deleteEvent(syncedEvent.googleEventId);
+
+          // 同期情報を削除
+          this.db.deleteSyncInfo(syncedEvent.garoonEventId);
+          this.db.logSync(
+            'DELETE',
+            syncedEvent.garoonEventId,
+            syncedEvent.googleEventId
+          );
+
+          this.syncStats.deleted++;
+          console.log(
+            `イベントを削除しました: Garoon=${syncedEvent.garoonEventId}, Google=${syncedEvent.googleEventId}`
+          );
+        } catch (error) {
+          // 既に削除済みの場合はエラーを無視して同期情報のみ削除
+          if (
+            error instanceof Error &&
+            error.message.includes('404')
+          ) {
+            this.db.deleteSyncInfo(syncedEvent.garoonEventId);
+            this.db.logSync(
+              'DELETE',
+              syncedEvent.garoonEventId,
+              syncedEvent.googleEventId,
+              'Google側で既に削除済み'
+            );
+            this.syncStats.deleted++;
+          } else {
+            this.syncStats.errors++;
+            console.error(
+              `イベント削除エラー (Garoon=${syncedEvent.garoonEventId}):`,
+              error
+            );
+            this.db.logSync(
+              'ERROR',
+              syncedEvent.garoonEventId,
+              syncedEvent.googleEventId,
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        }
+      }
+    }
+  }
+
+  /**
    * Google Calendarのイベントを更新
    * @param garoonEvent ガルーンイベント
    * @param googleEventId GoogleイベントID
@@ -243,15 +324,18 @@ export class SyncService {
       start = { date: startDate };
       end = { date: endDate };
     } else {
-      // 通常イベントの場合
+      // 通常イベントの場合（設定からデフォルトタイムゾーンを使用）
+      const defaultTimeZone =
+        this.config.sync.defaultTimeZone || 'Asia/Tokyo';
+
       start = {
         dateTime: garoonEvent.start.dateTime,
-        timeZone: garoonEvent.start.timeZone || 'Asia/Tokyo',
+        timeZone: garoonEvent.start.timeZone || defaultTimeZone,
       };
 
       end = {
         dateTime: garoonEvent.end.dateTime,
-        timeZone: garoonEvent.end.timeZone || 'Asia/Tokyo',
+        timeZone: garoonEvent.end.timeZone || defaultTimeZone,
       };
     }
 

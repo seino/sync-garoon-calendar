@@ -225,6 +225,7 @@ export function getDefaultConfig(): AppConfig {
       days: 30,
       excludePrivate: true,
       intervalMinutes: 15,
+      defaultTimeZone: process.env.DEFAULT_TIMEZONE || 'Asia/Tokyo',
     },
     teams: {
       webhookUrl: '', // 機密情報のため.envで設定

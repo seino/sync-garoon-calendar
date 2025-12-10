@@ -1,7 +1,5 @@
 import { GoogleCalendarClient } from '../google/calendar';
-import { CalendarEvent } from '../types/calendar';
-import fs from 'fs';
-import path from 'path';
+import { GoogleEvent } from '../types/google';
 import { loadConfig } from '../common/config';
 
 async function main() {
@@ -13,29 +11,11 @@ async function main() {
     // 設定を読み込む
     const config = loadConfig(configPath);
 
-    // 認証情報の読み込み
-    // 環境変数で指定されたパスから認証情報を読み込む
-    const credentialsPath = path.resolve(
-      process.cwd(),
-      config.google.credentials
-    );
-    let credentials;
-
-    try {
-      credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf8'));
-    } catch (error) {
-      console.error(
-        `認証情報ファイルの読み込みに失敗しました: ${credentialsPath}`
-      );
-      console.error('GOOGLE_CREDENTIALS_PATH環境変数を確認してください');
-      throw error;
-    }
-
     // カレンダーIDを設定から取得
     const calendarId = config.google.calendarId;
 
     // クライアントの初期化
-    const client = new GoogleCalendarClient(credentials, calendarId);
+    const client = new GoogleCalendarClient(config.google);
 
     // 既存のイベントを取得
     console.log('既存のイベントを取得中...');
@@ -50,21 +30,23 @@ async function main() {
       for (const event of existingEvents) {
         if (event.id) {
           await client.deleteEvent(event.id);
-          console.log(`イベントを削除しました: ${event.title}`);
+          console.log(`イベントを削除しました: ${event.summary}`);
         }
       }
     }
 
     // 終日イベントの作成
     console.log('\n終日イベントを作成中...');
-    const event: CalendarEvent = {
-      title: '開発合宿',
+    const startDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24時間後
+    const endDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3日後
+
+    const event: GoogleEvent = {
+      summary: '開発合宿',
       description:
         'チーム開発合宿\n\n場所：リモート\n\n持ち物：\n- ノートPC\n- 充電器\n- 飲み物',
-      start: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24時間後
-      end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3日後
+      start: { date: startDate.toISOString().split('T')[0] },
+      end: { date: endDate.toISOString().split('T')[0] },
       location: 'リモート',
-      isAllDay: true,
       reminders: {
         useDefault: false,
         overrides: [
@@ -81,14 +63,13 @@ async function main() {
 
     // イベントの更新
     console.log('イベントを更新中...');
-    const updatedEvent: CalendarEvent = {
-      title: '【重要】開発合宿',
+    const updatedEvent: GoogleEvent = {
+      summary: '【重要】開発合宿',
       description:
         'チーム開発合宿\n\n場所：リモート\n\n持ち物：\n- ノートPC\n- 充電器\n- 飲み物\n- スナック\n\n注意事項：\n- 9:00に集合\n- 18:00に解散',
-      start: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24時間後
-      end: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3日後
+      start: { date: startDate.toISOString().split('T')[0] },
+      end: { date: endDate.toISOString().split('T')[0] },
       location: 'リモート (Zoom URL: https://zoom.us/j/123456789)',
-      isAllDay: true,
       reminders: {
         useDefault: false,
         overrides: [
