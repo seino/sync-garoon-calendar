@@ -16,6 +16,7 @@ export interface SyncConfig {
   days: number;
   excludePrivate: boolean;
   intervalMinutes?: number;
+  defaultTimeZone?: string;
 }
 
 export interface AppConfig {

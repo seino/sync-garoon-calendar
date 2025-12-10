@@ -4,7 +4,22 @@ import fs from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
 import { AppConfig } from '../types/config';
-import { GaroonEvent } from '../types/garoon';
+
+export interface SyncLogEntry {
+  id: number;
+  timestamp: string;
+  action: string;
+  garoon_event_id: string | null;
+  google_event_id: string | null;
+  details: string | null;
+}
+
+export interface SyncedEventInfo {
+  garoonEventId: string;
+  googleEventId: string;
+  lastSynced: string;
+  garoonUpdatedAt: string;
+}
 
 export class SyncDatabase {
   private db: Database.Database;
@@ -125,6 +140,29 @@ export class SyncDatabase {
   }
 
   /**
+   * 全ての同期済みイベント情報を取得
+   * @returns 同期済みイベント情報の配列
+   */
+  getAllSyncedEvents(): SyncedEventInfo[] {
+    const stmt = this.db.prepare(
+      'SELECT garoon_event_id, google_event_id, last_synced, garoon_updated_at FROM synced_events'
+    );
+    const results = stmt.all() as {
+      garoon_event_id: string;
+      google_event_id: string;
+      last_synced: string;
+      garoon_updated_at: string;
+    }[];
+
+    return results.map((r) => ({
+      garoonEventId: r.garoon_event_id,
+      googleEventId: r.google_event_id,
+      lastSynced: r.last_synced,
+      garoonUpdatedAt: r.garoon_updated_at,
+    }));
+  }
+
+  /**
    * 同期ログを記録
    * @param action 実行したアクション
    * @param garoonEventId ガルーンイベントID（任意）
@@ -158,14 +196,14 @@ export class SyncDatabase {
    * @param limit 取得する件数
    * @returns 同期ログの配列
    */
-  getRecentLogs(limit: number = 100): any[] {
+  getRecentLogs(limit: number = 100): SyncLogEntry[] {
     const stmt = this.db.prepare(`
       SELECT * FROM sync_logs
       ORDER BY timestamp DESC
       LIMIT ?
     `);
 
-    return stmt.all(limit);
+    return stmt.all(limit) as SyncLogEntry[];
   }
 
   /**
