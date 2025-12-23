@@ -2,6 +2,7 @@
 
 export interface GaroonEvent {
   id: string;
+  eventMenu?: string;
   subject: string;
   start: {
     dateTime: string;

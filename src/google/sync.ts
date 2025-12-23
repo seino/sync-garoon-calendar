@@ -318,15 +318,30 @@ export class SyncService {
    * @returns Googleイベント
    */
   private convertToGoogleEvent(garoonEvent: GaroonEvent): GoogleEvent {
+    // 終日イベントの判定
+    const startTime = garoonEvent.start.dateTime.split('T')[1] || '';
+    const endTime = garoonEvent.end.dateTime.split('T')[1] || '';
+    const hasNoTime =
+      startTime.startsWith('00:00:00') &&
+      (endTime.startsWith('00:00:00') || endTime.startsWith('23:59:59'));
+
     const isAllDay =
-      garoonEvent.isAllDay || garoonEvent.eventType === 'ALL_DAY';
+      garoonEvent.isAllDay ||
+      garoonEvent.eventType === 'ALL_DAY' ||
+      hasNoTime;
 
     let start, end;
 
     if (isAllDay) {
       // 終日イベントの場合
+      // Google Calendar の終日イベントは終了日が「翌日」である必要がある
       const startDate = garoonEvent.start.dateTime.split('T')[0];
-      const endDate = garoonEvent.end.dateTime.split('T')[0];
+      const endDateRaw = garoonEvent.end.dateTime.split('T')[0];
+
+      // 終了日を翌日に設定
+      const endDateObj = new Date(endDateRaw);
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      const endDate = endDateObj.toISOString().split('T')[0];
 
       start = { date: startDate };
       end = { date: endDate };
@@ -366,9 +381,14 @@ export class SyncService {
     const visibility =
       garoonEvent.visibilityType === 'PRIVATE' ? 'private' : 'default';
 
+    // タイトル（eventMenuがある場合は接頭辞として追加）
+    const summary = garoonEvent.eventMenu
+      ? `${garoonEvent.eventMenu}: ${garoonEvent.subject}`
+      : garoonEvent.subject;
+
     // Googleイベントオブジェクトの作成
     const googleEvent: GoogleEvent = {
-      summary: garoonEvent.subject,
+      summary,
       description,
       location,
       start,
