@@ -1,8 +1,7 @@
-// データベース操作
+// 同期データの永続化（JSONファイル）
 
 import fs from 'fs';
 import path from 'path';
-import Database from 'better-sqlite3';
 import { AppConfig } from '../types/config';
 
 export interface SyncLogEntry {
@@ -21,48 +20,41 @@ export interface SyncedEventInfo {
   garoonUpdatedAt: string;
 }
 
+interface SyncData {
+  events: Record<string, SyncedEventInfo>;
+  logs: SyncLogEntry[];
+  lastLogId: number;
+}
+
 export class SyncDatabase {
-  private db: Database.Database;
+  private dataPath: string;
+  private data: SyncData;
 
   constructor(config: AppConfig) {
-    // データベースディレクトリが存在しない場合は作成
-    const dbDir = path.dirname(config.database.path);
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
+    this.dataPath = config.database.path.replace(/\.db$/, '.json');
+
+    const dataDir = path.dirname(this.dataPath);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
 
-    // データベース接続
-    this.db = new Database(config.database.path);
-
-    // テーブル初期化
-    this.initTables();
+    this.data = this.loadData();
   }
 
-  /**
-   * 必要なテーブルを初期化
-   */
-  private initTables(): void {
-    // 同期済みイベントテーブル
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS synced_events (
-        garoon_event_id TEXT PRIMARY KEY,
-        google_event_id TEXT NOT NULL,
-        last_synced TEXT NOT NULL,
-        garoon_updated_at TEXT NOT NULL
-      )
-    `);
+  private loadData(): SyncData {
+    if (fs.existsSync(this.dataPath)) {
+      try {
+        const content = fs.readFileSync(this.dataPath, 'utf8');
+        return JSON.parse(content);
+      } catch {
+        console.warn('データファイルの読み込みに失敗しました。新規作成します。');
+      }
+    }
+    return { events: {}, logs: [], lastLogId: 0 };
+  }
 
-    // 同期ログテーブル
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sync_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT NOT NULL,
-        action TEXT NOT NULL,
-        garoon_event_id TEXT,
-        google_event_id TEXT,
-        details TEXT
-      )
-    `);
+  private saveData(): void {
+    fs.writeFileSync(this.dataPath, JSON.stringify(this.data, null, 2), 'utf8');
   }
 
   /**
@@ -75,25 +67,14 @@ export class SyncDatabase {
     lastSynced: string;
     garoonUpdatedAt: string;
   } | null {
-    const stmt = this.db.prepare(
-      'SELECT google_event_id, last_synced, garoon_updated_at FROM synced_events WHERE garoon_event_id = ?'
-    );
-    const result = stmt.get(garoonEventId) as
-      | {
-          google_event_id: string;
-          last_synced: string;
-          garoon_updated_at: string;
-        }
-      | undefined;
-
-    if (!result) {
+    const event = this.data.events[garoonEventId];
+    if (!event) {
       return null;
     }
-
     return {
-      googleEventId: result.google_event_id,
-      lastSynced: result.last_synced,
-      garoonUpdatedAt: result.garoon_updated_at,
+      googleEventId: event.googleEventId,
+      lastSynced: event.lastSynced,
+      garoonUpdatedAt: event.garoonUpdatedAt,
     };
   }
 
@@ -108,24 +89,13 @@ export class SyncDatabase {
     googleEventId: string,
     garoonUpdatedAt: string
   ): void {
-    const now = new Date().toISOString();
-
-    const stmt = this.db.prepare(`
-      INSERT INTO synced_events (garoon_event_id, google_event_id, last_synced, garoon_updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(garoon_event_id)
-      DO UPDATE SET google_event_id = ?, last_synced = ?, garoon_updated_at = ?
-    `);
-
-    stmt.run(
+    this.data.events[garoonEventId] = {
       garoonEventId,
       googleEventId,
-      now,
+      lastSynced: new Date().toISOString(),
       garoonUpdatedAt,
-      googleEventId,
-      now,
-      garoonUpdatedAt
-    );
+    };
+    this.saveData();
   }
 
   /**
@@ -133,10 +103,22 @@ export class SyncDatabase {
    * @param garoonEventId ガルーンイベントID
    */
   deleteSyncInfo(garoonEventId: string): void {
-    const stmt = this.db.prepare(
-      'DELETE FROM synced_events WHERE garoon_event_id = ?'
-    );
-    stmt.run(garoonEventId);
+    delete this.data.events[garoonEventId];
+    this.saveData();
+  }
+
+  /**
+   * GoogleイベントIDで同期情報を削除
+   * @param googleEventId GoogleイベントID
+   */
+  deleteSyncInfoByGoogleEventId(googleEventId: string): void {
+    for (const [garoonId, event] of Object.entries(this.data.events)) {
+      if (event.googleEventId === googleEventId) {
+        delete this.data.events[garoonId];
+        break;
+      }
+    }
+    this.saveData();
   }
 
   /**
@@ -144,22 +126,7 @@ export class SyncDatabase {
    * @returns 同期済みイベント情報の配列
    */
   getAllSyncedEvents(): SyncedEventInfo[] {
-    const stmt = this.db.prepare(
-      'SELECT garoon_event_id, google_event_id, last_synced, garoon_updated_at FROM synced_events'
-    );
-    const results = stmt.all() as {
-      garoon_event_id: string;
-      google_event_id: string;
-      last_synced: string;
-      garoon_updated_at: string;
-    }[];
-
-    return results.map((r) => ({
-      garoonEventId: r.garoon_event_id,
-      googleEventId: r.google_event_id,
-      lastSynced: r.last_synced,
-      garoonUpdatedAt: r.garoon_updated_at,
-    }));
+    return Object.values(this.data.events);
   }
 
   /**
@@ -175,20 +142,22 @@ export class SyncDatabase {
     googleEventId?: string,
     details?: string
   ): void {
-    const now = new Date().toISOString();
-
-    const stmt = this.db.prepare(`
-      INSERT INTO sync_logs (timestamp, action, garoon_event_id, google_event_id, details)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-
-    stmt.run(
-      now,
+    this.data.lastLogId++;
+    this.data.logs.push({
+      id: this.data.lastLogId,
+      timestamp: new Date().toISOString(),
       action,
-      garoonEventId || null,
-      googleEventId || null,
-      details || null
-    );
+      garoon_event_id: garoonEventId || null,
+      google_event_id: googleEventId || null,
+      details: details || null,
+    });
+
+    // ログが1000件を超えたら古いものを削除
+    if (this.data.logs.length > 1000) {
+      this.data.logs = this.data.logs.slice(-500);
+    }
+
+    this.saveData();
   }
 
   /**
@@ -197,13 +166,7 @@ export class SyncDatabase {
    * @returns 同期ログの配列
    */
   getRecentLogs(limit: number = 100): SyncLogEntry[] {
-    const stmt = this.db.prepare(`
-      SELECT * FROM sync_logs
-      ORDER BY timestamp DESC
-      LIMIT ?
-    `);
-
-    return stmt.all(limit) as SyncLogEntry[];
+    return this.data.logs.slice(-limit).reverse();
   }
 
   /**
@@ -211,20 +174,15 @@ export class SyncDatabase {
    * @param daysToKeep 保持する日数
    */
   cleanupOldSyncInfo(daysToKeep: number = 90): void {
-    const date = new Date();
-    date.setDate(date.getDate() - daysToKeep);
-    const cutoffDate = date.toISOString();
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    const cutoffStr = cutoffDate.toISOString();
 
-    const stmt = this.db.prepare(
-      'DELETE FROM synced_events WHERE last_synced < ?'
-    );
-    stmt.run(cutoffDate);
-  }
-
-  /**
-   * データベース接続を閉じる
-   */
-  close(): void {
-    this.db.close();
+    for (const [garoonId, event] of Object.entries(this.data.events)) {
+      if (event.lastSynced < cutoffStr) {
+        delete this.data.events[garoonId];
+      }
+    }
+    this.saveData();
   }
 }

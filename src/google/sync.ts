@@ -209,6 +209,12 @@ export class SyncService {
     const syncedEvents = this.db.getAllSyncedEvents();
 
     for (const syncedEvent of syncedEvents) {
+      // garoonEventIdがnullの場合はスキップ（不正なレコードをクリーンアップ）
+      if (!syncedEvent.garoonEventId) {
+        this.db.deleteSyncInfoByGoogleEventId(syncedEvent.googleEventId);
+        continue;
+      }
+
       // ガルーンに存在しないイベントを検出
       if (!currentGaroonEventIds.has(syncedEvent.garoonEventId)) {
         try {
@@ -229,10 +235,11 @@ export class SyncService {
           );
         } catch (error) {
           // 既に削除済みの場合はエラーを無視して同期情報のみ削除
-          if (
+          const isAlreadyDeleted =
             error instanceof Error &&
-            error.message.includes('404')
-          ) {
+            (error.message.includes('404') ||
+              error.message.includes('Resource has been deleted'));
+          if (isAlreadyDeleted) {
             this.db.deleteSyncInfo(syncedEvent.garoonEventId);
             this.db.logSync(
               'DELETE',
@@ -339,21 +346,21 @@ export class SyncService {
       };
     }
 
-    // 参加者リストの作成
-    const attendees = garoonEvent.attendees
-      .filter((a) => a.type === 'USER') // ユーザーのみを対象
-      .map((a) => ({
-        email: `${a.id}@example.com`, // 実際のメールアドレスがない場合のダミー
-        displayName: a.name,
-      }));
+    // 参加者情報は説明欄に含める（サービスアカウントはDomain-Wide Delegationなしでは参加者を招待できないため）
+    const attendeeNames = garoonEvent.attendees
+      .filter((a) => a.type === 'USER')
+      .map((a) => a.name)
+      .join(', ');
 
     // 場所情報
     const location = garoonEvent.location || '';
 
-    // 説明 (メモ)
-    const description = garoonEvent.notes
-      ? `${garoonEvent.notes}\n\n(ガルーンから同期)`
-      : '(ガルーンから同期)';
+    // 説明 (メモ + 参加者情報)
+    let description = garoonEvent.notes || '';
+    if (attendeeNames) {
+      description += `\n\n参加者: ${attendeeNames}`;
+    }
+    description += '\n\n(ガルーンから同期)';
 
     // 可視性
     const visibility =
@@ -366,7 +373,6 @@ export class SyncService {
       location,
       start,
       end,
-      attendees: attendees.length > 0 ? attendees : undefined,
       visibility,
       extendedProperties: {
         private: {

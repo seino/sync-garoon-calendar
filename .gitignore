@@ -31,10 +31,8 @@ yarn-error.log*
 *.swo
 .DS_Store
 
-# データベース
-*.db
-*.sqlite
-*.sqlite3
+# 同期データ
+data/
 
 # テストカバレッジ
 coverage/

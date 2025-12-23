@@ -136,7 +136,7 @@ export class GaroonClient {
         target: targetId,
         targetType: targetType,
         fields:
-          'eventMenu,subject,notes,start,end,attendees,visibilityType,eventType,updatedAt,createdAt,location', // 必要なフィールドを指定
+          'id,eventMenu,subject,notes,start,end,attendees,visibilityType,eventType,updatedAt,createdAt,location', // 必要なフィールドを指定
       };
 
       let allEvents: GaroonEvent[] = [];
@@ -245,7 +245,7 @@ export class GaroonClient {
         rangeEnd: `${today}T23:59:59+09:00`,
         target: targetId,
         targetType: targetType,
-        fields: 'eventMenu,subject,notes,start,end',
+        fields: 'id,eventMenu,subject,notes,start,end',
       };
 
       // テスト用に直接エンドポイントを呼び出し

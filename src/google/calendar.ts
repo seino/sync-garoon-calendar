@@ -38,9 +38,11 @@ export class GoogleCalendarClient {
   async createEvent(event: GoogleEvent): Promise<string> {
     return withRetry(async () => {
       try {
+        const requestBody = this.convertToRequestBody(event);
+
         const response = await this.calendar.events.insert({
           calendarId: this.calendarId,
-          requestBody: this.convertToRequestBody(event),
+          requestBody,
           sendUpdates: 'none', // 参加者への通知を無効化
         });
 
