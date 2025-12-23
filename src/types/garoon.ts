@@ -34,6 +34,11 @@ export interface GaroonScheduleResponse {
   nextEventId?: string;
 }
 
+export interface GaroonTarget {
+  type: 'user' | 'organization';
+  id: string;
+}
+
 export interface GaroonAuthConfig {
   baseUrl: string;
   apiToken?: string;
@@ -41,4 +46,5 @@ export interface GaroonAuthConfig {
   password?: string;
   targetId?: string;
   targetType?: 'user' | 'organization';
+  targets?: GaroonTarget[];
 }

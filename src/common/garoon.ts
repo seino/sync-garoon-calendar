@@ -5,6 +5,7 @@ import {
   GaroonAuthConfig,
   GaroonEvent,
   GaroonScheduleResponse,
+  GaroonTarget,
 } from '../types/garoon';
 import { withRetry } from './retry';
 
@@ -107,7 +108,7 @@ export class GaroonClient {
   }
 
   /**
-   * 指定期間のスケジュールを取得
+   * 指定期間のスケジュールを取得（複数ターゲット対応）
    * @param startDate 開始日 (YYYY-MM-DD)
    * @param endDate 終了日 (YYYY-MM-DD)
    * @returns ガルーンイベント配列
@@ -116,27 +117,93 @@ export class GaroonClient {
     startDate: string,
     endDate: string
   ): Promise<GaroonEvent[]> {
-    try {
-      // 日付のフォーマットを検証
-      if (
-        !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
-        !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
-      ) {
-        throw new Error('日付フォーマットが不正です (YYYY-MM-DD)');
-      }
+    // 日付のフォーマットを検証
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
+    ) {
+      throw new Error('日付フォーマットが不正です (YYYY-MM-DD)');
+    }
 
+    // 複数ターゲットが設定されている場合
+    if (this.authConfig.targets && this.authConfig.targets.length > 0) {
+      return this.getScheduleFromMultipleTargets(startDate, endDate);
+    }
+
+    // 単一ターゲット（旧形式）
+    const target: GaroonTarget = {
+      type: this.authConfig.targetType || 'user',
+      id: this.authConfig.targetId || '2',
+    };
+    return this.getScheduleFromTarget(startDate, endDate, target);
+  }
+
+  /**
+   * 複数ターゲットからスケジュールを取得してマージ
+   * @param startDate 開始日 (YYYY-MM-DD)
+   * @param endDate 終了日 (YYYY-MM-DD)
+   * @returns マージされたガルーンイベント配列（重複排除済み）
+   */
+  private async getScheduleFromMultipleTargets(
+    startDate: string,
+    endDate: string
+  ): Promise<GaroonEvent[]> {
+    const targets = this.authConfig.targets!;
+    console.log(
+      `${targets.length}件のターゲットからイベントを取得します: ${targets.map((t) => `${t.type}:${t.id}`).join(', ')}`
+    );
+
+    // 各ターゲットから並列でイベントを取得
+    const results = await Promise.allSettled(
+      targets.map((target) =>
+        this.getScheduleFromTarget(startDate, endDate, target)
+      )
+    );
+
+    // イベントをマージして重複排除
+    const eventMap = new Map<string, GaroonEvent>();
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        console.log(
+          `${targets[index].type}:${targets[index].id} から ${result.value.length} 件のイベントを取得`
+        );
+        for (const event of result.value) {
+          eventMap.set(event.id, event);
+        }
+      } else {
+        console.error(
+          `${targets[index].type}:${targets[index].id} からのイベント取得に失敗: ${result.reason}`
+        );
+      }
+    });
+
+    const allEvents = Array.from(eventMap.values());
+    console.log(`合計 ${allEvents.length} 件のユニークなイベント`);
+    return allEvents;
+  }
+
+  /**
+   * 単一ターゲットからスケジュールを取得
+   * @param startDate 開始日 (YYYY-MM-DD)
+   * @param endDate 終了日 (YYYY-MM-DD)
+   * @param target ターゲット情報
+   * @returns ガルーンイベント配列
+   */
+  private async getScheduleFromTarget(
+    startDate: string,
+    endDate: string,
+    target: GaroonTarget
+  ): Promise<GaroonEvent[]> {
+    try {
       const endpoint = '/api/v1/schedule/events';
-      // 設定からtargetIdとtargetTypeを取得（デフォルト値はユーザーID='2'）
-      const targetId = this.authConfig.targetId || '2';
-      const targetType = this.authConfig.targetType || 'user';
 
       const params = {
         rangeStart: `${startDate}T00:00:00+09:00`,
         rangeEnd: `${endDate}T23:59:59+09:00`,
-        target: targetId,
-        targetType: targetType,
+        target: target.id,
+        targetType: target.type,
         fields:
-          'id,eventMenu,subject,notes,start,end,attendees,visibilityType,eventType,updatedAt,createdAt,location', // 必要なフィールドを指定
+          'id,eventMenu,subject,notes,start,end,attendees,visibilityType,eventType,updatedAt,createdAt,location',
       };
 
       let allEvents: GaroonEvent[] = [];
@@ -171,22 +238,24 @@ export class GaroonClient {
       if (axios.isAxiosError(error)) {
         if (error.response) {
           throw new Error(
-            `ガルーンAPI呼び出しエラー: ${
+            `ガルーンAPI呼び出しエラー (${target.type}:${target.id}): ${
               error.response.status
             } ${JSON.stringify(error.response.data)}`
           );
         } else if (error.request) {
           throw new Error(
-            `ガルーンAPIリクエストエラー: サーバーからレスポンスがありません`
+            `ガルーンAPIリクエストエラー (${target.type}:${target.id}): サーバーからレスポンスがありません`
           );
         }
       }
 
       if (error instanceof Error) {
-        throw new Error(`ガルーンAPIエラー: ${error.message}`);
+        throw new Error(
+          `ガルーンAPIエラー (${target.type}:${target.id}): ${error.message}`
+        );
       }
 
-      throw new Error('不明なガルーンAPIエラー');
+      throw new Error(`不明なガルーンAPIエラー (${target.type}:${target.id})`);
     }
   }
 

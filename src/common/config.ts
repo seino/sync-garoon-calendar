@@ -5,9 +5,38 @@ import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
 import { AppConfig } from '../types/config';
+import { GaroonTarget } from '../types/garoon';
 
 // .envファイルがあれば読み込む（機密情報専用）
 dotenv.config();
+
+/**
+ * GAROON_TARGETS環境変数をパースする
+ * 形式: "user:2,organization:4"
+ * @param targetsStr ターゲット文字列
+ * @returns パースされたターゲット配列
+ */
+function parseGaroonTargets(targetsStr: string): GaroonTarget[] {
+  const targets: GaroonTarget[] = [];
+
+  const parts = targetsStr.split(',').map((s) => s.trim());
+  for (const part of parts) {
+    const [type, id] = part.split(':').map((s) => s.trim());
+    if (type && id && (type === 'user' || type === 'organization')) {
+      targets.push({ type, id });
+    } else {
+      console.warn(`無効なターゲット形式をスキップしました: ${part}`);
+    }
+  }
+
+  if (targets.length === 0) {
+    throw new Error(
+      `GAROON_TARGETSの形式が不正です: ${targetsStr}。正しい形式: user:2,organization:4`
+    );
+  }
+
+  return targets;
+}
 
 /**
  * 設定を読み込む
@@ -35,15 +64,20 @@ export function loadConfig(configPath?: string): AppConfig {
       config.garoon.password = process.env.GAROON_PASSWORD;
     }
 
-    // ターゲットタイプとID設定
-    if (process.env.GAROON_TARGET_TYPE) {
-      config.garoon.targetType = process.env.GAROON_TARGET_TYPE as
-        | 'user'
-        | 'organization';
-    }
+    // 複数ターゲット設定（新形式: GAROON_TARGETS=user:2,organization:4）
+    if (process.env.GAROON_TARGETS) {
+      config.garoon.targets = parseGaroonTargets(process.env.GAROON_TARGETS);
+    } else {
+      // 旧形式との後方互換性（GAROON_TARGET_TYPE + GAROON_TARGET_ID）
+      if (process.env.GAROON_TARGET_TYPE) {
+        config.garoon.targetType = process.env.GAROON_TARGET_TYPE as
+          | 'user'
+          | 'organization';
+      }
 
-    if (process.env.GAROON_TARGET_ID) {
-      config.garoon.targetId = process.env.GAROON_TARGET_ID;
+      if (process.env.GAROON_TARGET_ID) {
+        config.garoon.targetId = process.env.GAROON_TARGET_ID;
+      }
     }
 
     // Google認証情報
