@@ -2,15 +2,23 @@
   "name": "sync-garoon-calendar",
   "version": "1.0.0",
   "description": "ガルーンのスケジュールを外部カレンダーサービスと同期",
-  "main": "dist/scripts/syncGoogle.js",
+  "main": "dist/scripts/sync-google.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/scripts/syncGoogle.js",
-    "dev": "ts-node-dev --respawn src/scripts/syncGoogle.ts",
+    "start": "node dist/scripts/sync-google.js",
+    "dev": "ts-node-dev --respawn src/scripts/sync-google.ts",
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "test:garoon": "ts-node src/scripts/test-garoon.ts",
-    "test:garoon:org": "ts-node src/scripts/test-garoon-organization.ts"
+    "test:garoon:org": "ts-node src/scripts/test-garoon-organization.ts",
+    "test:sync": "ts-node src/scripts/test-sync-google.ts",
+    "sync": "ts-node src/scripts/sync-google.ts",
+    "sync:dry-run": "ts-node src/scripts/sync-google.ts --dry-run",
+    "sync:production": "ts-node src/scripts/sync-google.ts",
+    "sync:7days": "ts-node src/scripts/sync-google.ts --days=7",
+    "sync:30days": "ts-node src/scripts/sync-google.ts --days=30",
+    "schedule": "ts-node src/scripts/schedule.ts",
+    "clean:google": "ts-node src/scripts/clean-google-events.ts"
   },
   "dependencies": {
     "axios": "^1.6.2",

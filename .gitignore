@@ -37,6 +37,9 @@ data/
 # テストカバレッジ
 coverage/
 
+# Claude Code
+CLAUDE.md
+
 # その他
 .cache/
 .temp/

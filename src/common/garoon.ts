@@ -16,13 +16,10 @@ export class GaroonClient {
 
   /**
    * URLをマスキングして安全に表示
-   * @param url マスキングするURL
-   * @returns マスキングされたURL
    */
   private maskUrl(url: string): string {
     try {
       const parsed = new URL(url);
-      // ホスト名の一部をマスク
       const host = parsed.hostname;
       const maskedHost =
         host.length > 4
@@ -37,14 +34,12 @@ export class GaroonClient {
   constructor(config: GaroonAuthConfig) {
     this.authConfig = config;
 
-    // ベースURLのバリデーション
     if (!config.baseUrl) {
       throw new Error('ガルーンのベースURLが設定されていません');
     }
 
-    this.baseUrl = config.baseUrl.replace(/\/$/, ''); // 末尾のスラッシュを削除
+    this.baseUrl = config.baseUrl.replace(/\/$/, '');
 
-    // URLが有効か確認
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(this.baseUrl);
@@ -52,7 +47,6 @@ export class GaroonClient {
       throw new Error(`ガルーンのベースURLが不正です: ${this.maskUrl(this.baseUrl)}`);
     }
 
-    // HTTPSの検証（本番環境では必須）
     if (
       parsedUrl.protocol !== 'https:' &&
       process.env.NODE_ENV !== 'development'
@@ -62,21 +56,17 @@ export class GaroonClient {
       );
     }
 
-    // Axiosインスタンスの作成
     this.client = axios.create({
       baseURL: this.baseUrl,
       headers: {
         'Content-Type': 'application/json',
       },
-      timeout: 10000, // 10秒のタイムアウト
+      timeout: 10000,
     });
 
-    // 認証の設定
     this.setupAuth();
 
-    // ターゲット設定の表示（機密情報はマスキング）
     const targetType = this.authConfig.targetType || 'user';
-
     console.log(
       `ガルーンAPIクライアントを初期化しました: ${this.maskUrl(this.baseUrl)}`
     );
@@ -85,39 +75,31 @@ export class GaroonClient {
 
   /**
    * 認証設定を行う
-   * 参考: https://cybozu.dev/ja/garoon/docs/rest-api/overview/authentication/
    */
   private setupAuth(): void {
     const { apiToken, username, password } = this.authConfig;
 
-    // 認証方法の選択
     if (username && password) {
-      // 1. パスワード認証（ログイン名:パスワードをBase64エンコード）
       const auth = Buffer.from(`${username}:${password}`).toString('base64');
       this.client.defaults.headers.common['X-Cybozu-Authorization'] = auth;
       console.log('認証方式: パスワード認証を使用');
     } else if (apiToken) {
-      // 2. APIトークン認証を使用
       this.client.defaults.headers.common['X-Cybozu-Authorization'] = apiToken;
       console.log('認証方式: APIトークン認証を使用');
     } else {
       throw new Error(
-        '認証情報が設定されていません。GAROON_API_TOKENまたはGAROON_USERNAMEとGAROON_PASSWORDを設定してください'
+        '認証情報が設定されていません。GAROON_API_TOKEN または GAROON_USERNAME/GAROON_PASSWORD を設定してください'
       );
     }
   }
 
   /**
    * 指定期間のスケジュールを取得（複数ターゲット対応）
-   * @param startDate 開始日 (YYYY-MM-DD)
-   * @param endDate 終了日 (YYYY-MM-DD)
-   * @returns ガルーンイベント配列
    */
   async getSchedule(
     startDate: string,
     endDate: string
   ): Promise<GaroonEvent[]> {
-    // 日付のフォーマットを検証
     if (
       !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
       !/^\d{4}-\d{2}-\d{2}$/.test(endDate)
@@ -125,12 +107,10 @@ export class GaroonClient {
       throw new Error('日付フォーマットが不正です (YYYY-MM-DD)');
     }
 
-    // 複数ターゲットが設定されている場合
     if (this.authConfig.targets && this.authConfig.targets.length > 0) {
       return this.getScheduleFromMultipleTargets(startDate, endDate);
     }
 
-    // 単一ターゲット（旧形式）
     const target: GaroonTarget = {
       type: this.authConfig.targetType || 'user',
       id: this.authConfig.targetId || '2',
@@ -140,9 +120,6 @@ export class GaroonClient {
 
   /**
    * 複数ターゲットからスケジュールを取得してマージ
-   * @param startDate 開始日 (YYYY-MM-DD)
-   * @param endDate 終了日 (YYYY-MM-DD)
-   * @returns マージされたガルーンイベント配列（重複排除済み）
    */
   private async getScheduleFromMultipleTargets(
     startDate: string,
@@ -153,14 +130,12 @@ export class GaroonClient {
       `${targets.length}件のターゲットからイベントを取得します: ${targets.map((t) => `${t.type}:${t.id}`).join(', ')}`
     );
 
-    // 各ターゲットから並列でイベントを取得
     const results = await Promise.allSettled(
       targets.map((target) =>
         this.getScheduleFromTarget(startDate, endDate, target)
       )
     );
 
-    // イベントをマージして重複排除
     const eventMap = new Map<string, GaroonEvent>();
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
@@ -184,10 +159,6 @@ export class GaroonClient {
 
   /**
    * 単一ターゲットからスケジュールを取得
-   * @param startDate 開始日 (YYYY-MM-DD)
-   * @param endDate 終了日 (YYYY-MM-DD)
-   * @param target ターゲット情報
-   * @returns ガルーンイベント配列
    */
   private async getScheduleFromTarget(
     startDate: string,
@@ -210,9 +181,8 @@ export class GaroonClient {
       let hasNext = true;
       let nextEventId: string | undefined;
 
-      // ページネーションでイベントを全て取得
       while (hasNext) {
-        const requestParams: any = { ...params };
+        const requestParams: Record<string, string> = { ...params };
         if (nextEventId) {
           requestParams.nextEventId = nextEventId;
         }
@@ -261,8 +231,6 @@ export class GaroonClient {
 
   /**
    * 単一のイベントを取得
-   * @param eventId イベントID
-   * @returns イベント情報
    */
   async getEvent(eventId: string): Promise<GaroonEvent> {
     try {
@@ -286,26 +254,10 @@ export class GaroonClient {
 
   /**
    * Garoon APIの接続テスト
-   * @returns 接続が成功したかどうか
-   * @throws エラー情報を含む例外
    */
   async testConnection(): Promise<boolean> {
     try {
-      // 接続情報をデバッグ表示（機密情報はマスキング）
-      console.log('デバッグ: Garoon接続テスト開始');
-      console.log(`デバッグ: ベースURL: ${this.maskUrl(this.baseUrl)}`);
-
-      // 認証方式の表示（機密情報は表示しない）
-      const authHeaders = this.client.defaults.headers.common;
-      const authMethod = authHeaders['X-Cybozu-Authorization']
-        ? 'X-Cybozu-Authorization'
-        : authHeaders['Authorization']
-          ? 'Authorization (Basic)'
-          : 'なし';
-      console.log(`デバッグ: 認証方式: ${authMethod}`);
-
-      // テスト用のシンプルなパラメータ
-      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const today = new Date().toISOString().slice(0, 10);
       const targetId = this.authConfig.targetId || '2';
       const targetType = this.authConfig.targetType || 'user';
 
@@ -317,27 +269,19 @@ export class GaroonClient {
         fields: 'id,eventMenu,subject,notes,start,end',
       };
 
-      // テスト用に直接エンドポイントを呼び出し
       const endpoint = '/api/v1/schedule/events';
-      const response = await withRetry(() =>
-        this.client.get(endpoint, { params })
-      );
-
-      console.log(`デバッグ: ステータスコード: ${response.status}`);
-      console.log(`デバッグ: イベント数: ${response.data.events?.length || 0}`);
+      await withRetry(() => this.client.get(endpoint, { params }));
 
       return true;
     } catch (error) {
-      console.error('Garoon接続テストエラー');
+      console.error('[GaroonClient] 接続テストに失敗しました:', error);
       if (axios.isAxiosError(error)) {
         if (error.response) {
-          console.error(`ステータスコード: ${error.response.status}`);
+          console.error(`[GaroonClient] ステータスコード: ${error.response.status}`);
         } else if (error.request) {
-          console.error('レスポンスなし: サーバーに接続できませんでした');
+          console.error('[GaroonClient] サーバーに接続できませんでした');
         }
-        console.error(`エラーメッセージ: ${error.message}`);
       }
-      // エラーを再スローして詳細情報を伝搬
       throw error;
     }
   }
