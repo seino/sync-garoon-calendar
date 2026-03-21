@@ -1,14 +1,17 @@
 // 通知機能
 
-import { IncomingWebhook } from 'ms-teams-webhook';
+import axios from 'axios';
 import { TeamsConfig } from '../types/config';
+import { logger } from './logger';
+
+const log = logger.child({ module: 'Notification' });
 
 export class NotificationService {
-  private teamsWebhook: IncomingWebhook | null = null;
+  private webhookUrl: string | null = null;
 
   constructor(config: TeamsConfig) {
     if (config.webhookUrl) {
-      this.teamsWebhook = new IncomingWebhook(config.webhookUrl);
+      this.webhookUrl = config.webhookUrl;
     }
   }
 
@@ -24,10 +27,8 @@ export class NotificationService {
     message: string,
     color: 'default' | 'success' | 'warning' | 'error' = 'default'
   ): Promise<boolean> {
-    if (!this.teamsWebhook) {
-      console.log(
-        'Microsoft Teamsの通知設定がないため、通知はスキップされました'
-      );
+    if (!this.webhookUrl) {
+      log.info('Microsoft Teamsの通知設定がないため、通知はスキップされました');
       return false;
     }
 
@@ -50,7 +51,7 @@ export class NotificationService {
 
       const timestamp = new Date().toLocaleString('ja-JP');
 
-      // メッセージカードの作成
+      // Adaptive Card の作成
       const card = {
         type: 'message',
         attachments: [
@@ -84,11 +85,10 @@ export class NotificationService {
         ],
       };
 
-      // 送信
-      await this.teamsWebhook.send(card);
+      await axios.post(this.webhookUrl, card);
       return true;
     } catch (error) {
-      console.error('Microsoft Teams通知エラー:', error);
+      log.error('Microsoft Teams通知エラー', { error });
       return false;
     }
   }

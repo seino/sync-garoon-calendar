@@ -5,13 +5,15 @@ import { GoogleCalendarClient } from '../google/calendar';
 import { NotificationService } from '../common/notification';
 import { loadConfig } from '../common/config';
 import { syncEvents } from '../google/sync';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'SyncGoogle' });
 
 async function main() {
   try {
-    console.log('========================================');
-    console.log('Garoon → Google Calendar 同期開始');
-    console.log(`実行時刻: ${new Date().toLocaleString('ja-JP')}`);
-    console.log('========================================\n');
+    log.info('Garoon → Google Calendar 同期開始', {
+      timestamp: new Date().toLocaleString('ja-JP'),
+    });
 
     // コマンドライン引数
     const configArg = process.argv.find((arg) => arg.startsWith('--config='));
@@ -27,13 +29,13 @@ async function main() {
     const notificationService = new NotificationService(config.teams);
 
     // 接続テスト
-    console.log('接続確認中...');
+    log.info('接続確認中...');
     await garoonClient.testConnection();
     const googleConnected = await googleClient.testConnection();
     if (!googleConnected) {
       throw new Error('Google Calendar APIへの接続に失敗しました');
     }
-    console.log('接続確認完了\n');
+    log.info('接続確認完了');
 
     // 同期実行
     const result = await syncEvents({
@@ -45,40 +47,41 @@ async function main() {
     });
 
     if (dryRun) {
-      console.log('\nドライランモードのため、実際の同期は行いませんでした');
+      log.info('ドライランモードのため、実際の同期は行いませんでした');
       return;
     }
 
     // 結果表示
-    console.log('\n========================================');
-    console.log('同期完了');
-    console.log('========================================');
-    console.log(`処理したイベント: ${result.total}件`);
-    console.log(`  新規作成: ${result.created}件`);
-    console.log(`  更新: ${result.updated}件`);
-    console.log(`  スキップ: ${result.skipped}件`);
-    console.log(`  エラー: ${result.errors}件`);
-    console.log(`完了時刻: ${new Date().toLocaleString('ja-JP')}`);
+    log.info('同期完了', {
+      total: result.total,
+      created: result.created,
+      updated: result.updated,
+      deleted: result.deleted,
+      skipped: result.skipped,
+      errors: result.errors,
+      timestamp: new Date().toLocaleString('ja-JP'),
+    });
 
     // Teams通知
     try {
       await notificationService.sendSyncResultNotification(
         result.created,
         result.updated,
-        0,
+        result.deleted,
         result.errors
       );
     } catch (notifyError) {
-      console.warn('[Teams] 通知の送信に失敗しました:', notifyError);
+      log.warn('Teams通知の送信に失敗しました', { error: notifyError });
     }
 
     if (result.errors > 0) {
-      console.log('一部のイベントで同期エラーが発生しました');
+      log.warn('一部のイベントで同期エラーが発生しました');
       process.exit(1);
     }
   } catch (error) {
-    console.error('\n同期処理中にエラーが発生しました:');
-    console.error(error instanceof Error ? error.message : error);
+    log.error('同期処理中にエラーが発生しました', {
+      error: error instanceof Error ? error.message : error,
+    });
 
     try {
       const config = loadConfig();
@@ -88,7 +91,7 @@ async function main() {
         error instanceof Error ? error.message : String(error)
       );
     } catch (notifyError) {
-      console.warn('[Teams] 通知の送信に失敗しました:', notifyError);
+      log.warn('Teams通知の送信に失敗しました', { error: notifyError });
     }
 
     process.exit(1);

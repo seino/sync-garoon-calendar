@@ -2,6 +2,9 @@ import { google } from 'googleapis';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'ListCalendars' });
 
 // .envファイルを読み込む
 dotenv.config();
@@ -31,22 +34,21 @@ async function main() {
     const calendars = response.data.items;
 
     if (!calendars || calendars.length === 0) {
-      console.log('利用可能なカレンダーが見つかりませんでした。');
+      log.info('利用可能なカレンダーが見つかりませんでした');
       return;
     }
 
-    console.log('利用可能なカレンダー一覧:');
+    log.info('カレンダー一覧取得完了', { count: calendars.length });
     calendars.forEach((cal, index) => {
-      console.log(`${index + 1}. ${cal.summary} (ID: ${cal.id})`);
-      if (cal.description) {
-        console.log(`   説明: ${cal.description}`);
-      }
-      console.log(`   アクセス権限: ${cal.accessRole}`);
-      console.log('---');
+      log.info(`${index + 1}. ${cal.summary}`, {
+        id: cal.id,
+        description: cal.description || undefined,
+        accessRole: cal.accessRole,
+      });
     });
 
   } catch (error) {
-    console.error('エラーが発生しました:', error);
+    log.error('エラーが発生しました', { error });
     process.exit(1);
   }
 }

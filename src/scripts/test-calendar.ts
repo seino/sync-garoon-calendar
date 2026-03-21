@@ -1,6 +1,9 @@
 import { GoogleCalendarClient } from '../google/calendar';
 import { GoogleEvent } from '../types/google';
 import { loadConfig } from '../common/config';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'TestCalendar' });
 
 async function main() {
   try {
@@ -18,7 +21,7 @@ async function main() {
     const client = new GoogleCalendarClient(config.google);
 
     // 既存のイベントを取得
-    console.log('既存のイベントを取得中...');
+    log.info('既存のイベントを取得中...');
     const existingEvents = await client.listEvents(
       new Date(Date.now()),
       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7日後まで
@@ -26,17 +29,17 @@ async function main() {
 
     // 既存のイベントを削除
     if (existingEvents.length > 0) {
-      console.log(`${existingEvents.length}件の既存イベントを削除中...`);
+      log.info('既存イベントを削除中', { count: existingEvents.length });
       for (const event of existingEvents) {
         if (event.id) {
           await client.deleteEvent(event.id);
-          console.log(`イベントを削除しました: ${event.summary}`);
+          log.info('イベントを削除しました', { summary: event.summary });
         }
       }
     }
 
     // 終日イベントの作成
-    console.log('\n終日イベントを作成中...');
+    log.info('終日イベントを作成中...');
     const startDate = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24時間後
     const endDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // 3日後
 
@@ -59,10 +62,10 @@ async function main() {
     };
 
     const eventId = await client.createEvent(event);
-    console.log('終日イベントを作成しました:', eventId);
+    log.info('終日イベントを作成しました', { eventId });
 
     // イベントの更新
-    console.log('イベントを更新中...');
+    log.info('イベントを更新中...');
     const updatedEvent: GoogleEvent = {
       summary: '【重要】開発合宿',
       description:
@@ -82,40 +85,30 @@ async function main() {
     };
 
     await client.updateEvent(eventId, updatedEvent);
-    console.log('イベントを更新しました');
+    log.info('イベントを更新しました');
 
     // イベントの一覧取得
-    console.log('\nイベント一覧を取得中...');
+    log.info('イベント一覧を取得中...');
     const events = await client.listEvents(
       new Date(Date.now()),
       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7日後まで
     );
-    console.log('取得したイベント:', events);
+    log.info('イベント一覧取得完了', { count: events.length });
 
     // イベントの削除
-    console.log('\nイベントを削除中...');
+    log.info('イベントを削除中...');
     await client.deleteEvent(eventId);
-    console.log('イベントを削除しました');
+    log.info('イベントを削除しました');
 
-    console.log(
-      '\nイベントを確認するには、Googleカレンダーにアクセスしてください。'
-    );
-    console.log(
-      '確認が終わったら、このスクリプトを再度実行してイベントを削除してください。'
-    );
-
-    console.log('\n------------ 実行情報 ------------');
-    console.log(`カレンダーID: ${calendarId}`);
-    console.log(`認証情報パス: ${config.google.credentials}`);
-    console.log('----------------------------------');
+    log.info('実行情報', {
+      calendarId,
+      credentialsPath: config.google.credentials,
+    });
   } catch (error) {
-    console.error('エラーが発生しました:', error);
-    if (error instanceof Error) {
-      console.error(error.message);
-      if (error.stack) {
-        console.error(error.stack);
-      }
-    }
+    log.error('エラーが発生しました', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     process.exit(1);
   }
 }

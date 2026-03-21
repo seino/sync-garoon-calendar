@@ -1,9 +1,14 @@
 // リトライ処理ユーティリティ
 
+import { logger } from './logger';
+
+const log = logger.child({ module: 'Retry' });
+
 export interface RetryOptions {
   maxRetries: number;
   baseDelayMs: number;
   maxDelayMs: number;
+  operationName?: string;
   shouldRetry?: (error: unknown) => boolean;
 }
 
@@ -120,9 +125,12 @@ export async function withRetry<T>(
 
       // 次の試行まで待機
       const delay = calculateDelay(attempt, opts.baseDelayMs, opts.maxDelayMs);
-      console.warn(
-        `リトライ ${attempt + 1}/${opts.maxRetries}: ${delay}ms後に再試行します`
-      );
+      log.warn('リトライします', {
+        operation: opts.operationName,
+        attempt: attempt + 1,
+        maxRetries: opts.maxRetries,
+        delayMs: Math.round(delay),
+      });
       await sleep(delay);
     }
   }

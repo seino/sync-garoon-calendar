@@ -3,6 +3,9 @@
 import { GaroonClient } from '../common/garoon';
 import { loadConfig } from '../common/config';
 import { format, addDays } from 'date-fns';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'TestGaroon' });
 
 /**
  * 日付を YYYY-MM-DD 形式にフォーマット
@@ -33,23 +36,15 @@ async function main() {
       password: config.garoon.password,
     });
 
-    console.log('ガルーンAPIに接続しています...');
-    console.log('接続設定:');
-    console.log(`- ベースURL: ${config.garoon.baseUrl}`);
-    console.log(
-      `- 認証方法: ${
-        config.garoon.apiToken ? 'APIトークン' : 'ユーザー名/パスワード'
-      }`
-    );
-    console.log(
-      `- ターゲット: ${
-        config.garoon.targetType === 'organization' ? '組織' : 'ユーザー'
-      } (ID: ${config.garoon.targetId})`
-    );
+    log.info('ガルーンAPIに接続しています', {
+      baseUrl: config.garoon.baseUrl,
+      authMethod: config.garoon.apiToken ? 'APIトークン' : 'ユーザー名/パスワード',
+      targetType: config.garoon.targetType === 'organization' ? '組織' : 'ユーザー',
+      targetId: config.garoon.targetId,
+    });
 
     // 接続テスト
     try {
-      // 接続テスト
       const isConnected = await client.testConnection();
       if (!isConnected) {
         throw new Error(
@@ -57,9 +52,9 @@ async function main() {
         );
       }
 
-      console.log('✅ ガルーンAPIに接続成功しました');
+      log.info('ガルーンAPIに接続成功しました');
     } catch (error) {
-      console.error('❌ ガルーンAPIへの接続に失敗しました');
+      log.error('ガルーンAPIへの接続に失敗しました', { error });
       throw error;
     }
 
@@ -68,72 +63,49 @@ async function main() {
     const startDate = formatDate(today);
     const endDate = formatDate(addDays(today, days));
 
-    console.log(
-      `\n${startDate}から${endDate}までの予定を取得します（${days}日間）...`
-    );
+    log.info('予定を取得します', { startDate, endDate, days });
 
     // スケジュール取得
     const events = await client.getSchedule(startDate, endDate);
 
     // 結果の表示
-    console.log(`\n取得した予定: ${events.length}件\n`);
+    log.info('予定取得完了', { count: events.length });
 
     if (events.length === 0) {
-      console.log('この期間に予定はありません。');
+      log.info('この期間に予定はありません');
     } else {
-      console.log('============ 予定一覧 ============');
       events.forEach((event, index) => {
-        const startTime = new Date(event.start.dateTime).toLocaleString(
-          'ja-JP'
-        );
+        const startTime = new Date(event.start.dateTime).toLocaleString('ja-JP');
         const endTime = new Date(event.end.dateTime).toLocaleString('ja-JP');
-        const isPrivate = event.visibilityType === 'PRIVATE';
 
-        console.log(`[${index + 1}] ${event.subject} ${isPrivate ? '🔒' : ''}`);
-        console.log(`  ID: ${event.id}`);
-        console.log(`  期間: ${startTime} - ${endTime}`);
-        console.log(`  終日: ${event.isAllDay ? 'はい' : 'いいえ'}`);
-        if (event.location) console.log(`  場所: ${event.location}`);
-        if (event.notes)
-          console.log(
-            `  メモ: ${event.notes.substring(0, 100)}${
-              event.notes.length > 100 ? '...' : ''
-            }`
-          );
-        console.log(
-          `  参加者: ${event.attendees.map((a) => a.name).join(', ') || 'なし'}`
-        );
-        console.log(
-          `  更新日時: ${new Date(event.updatedAt).toLocaleString('ja-JP')}`
-        );
-        console.log('-----------------------------------');
+        log.info(`[${index + 1}] ${event.subject}`, {
+          id: event.id,
+          startTime,
+          endTime,
+          isAllDay: event.isAllDay,
+          location: event.location || undefined,
+          notes: event.notes ? event.notes.substring(0, 100) : undefined,
+          attendees: event.attendees.map((a) => a.name).join(', ') || 'なし',
+          isPrivate: event.visibilityType === 'PRIVATE',
+          updatedAt: new Date(event.updatedAt).toLocaleString('ja-JP'),
+        });
       });
     }
 
-    console.log('\n========== 実行情報 ==========');
-    console.log(`接続先: ${config.garoon.baseUrl}`);
-    console.log(
-      `認証方法: ${
-        config.garoon.apiToken ? 'APIトークン' : 'ユーザー名/パスワード'
-      }`
-    );
-    console.log(
-      `ターゲット: ${
-        config.garoon.targetType === 'organization' ? '組織' : 'ユーザー'
-      } (ID: ${config.garoon.targetId})`
-    );
-    console.log(`取得期間: ${days}日間 (${startDate} - ${endDate})`);
-    console.log('==============================');
+    log.info('実行情報', {
+      baseUrl: config.garoon.baseUrl,
+      authMethod: config.garoon.apiToken ? 'APIトークン' : 'ユーザー名/パスワード',
+      targetType: config.garoon.targetType === 'organization' ? '組織' : 'ユーザー',
+      targetId: config.garoon.targetId,
+      days,
+      startDate,
+      endDate,
+    });
   } catch (error) {
-    console.error('エラーが発生しました:');
-    if (error instanceof Error) {
-      console.error(error.message);
-      if (error.stack) {
-        console.error(error.stack);
-      }
-    } else {
-      console.error(error);
-    }
+    log.error('エラーが発生しました', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     process.exit(1);
   }
 }

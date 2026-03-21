@@ -8,6 +8,9 @@ import {
   GaroonTarget,
 } from '../types/garoon';
 import { withRetry } from './retry';
+import { logger } from './logger';
+
+const log = logger.child({ module: 'GaroonClient' });
 
 export class GaroonClient {
   private client: AxiosInstance;
@@ -67,10 +70,10 @@ export class GaroonClient {
     this.setupAuth();
 
     const targetType = this.authConfig.targetType || 'user';
-    console.log(
-      `ガルーンAPIクライアントを初期化しました: ${this.maskUrl(this.baseUrl)}`
-    );
-    console.log(`ターゲットタイプ: ${targetType}`);
+    log.info('ガルーンAPIクライアントを初期化しました', {
+      baseUrl: this.maskUrl(this.baseUrl),
+      targetType,
+    });
   }
 
   /**
@@ -82,10 +85,10 @@ export class GaroonClient {
     if (username && password) {
       const auth = Buffer.from(`${username}:${password}`).toString('base64');
       this.client.defaults.headers.common['X-Cybozu-Authorization'] = auth;
-      console.log('認証方式: パスワード認証を使用');
+      log.info('認証方式: パスワード認証を使用');
     } else if (apiToken) {
       this.client.defaults.headers.common['X-Cybozu-Authorization'] = apiToken;
-      console.log('認証方式: APIトークン認証を使用');
+      log.info('認証方式: APIトークン認証を使用');
     } else {
       throw new Error(
         '認証情報が設定されていません。GAROON_API_TOKEN または GAROON_USERNAME/GAROON_PASSWORD を設定してください'
@@ -126,9 +129,10 @@ export class GaroonClient {
     endDate: string
   ): Promise<GaroonEvent[]> {
     const targets = this.authConfig.targets!;
-    console.log(
-      `${targets.length}件のターゲットからイベントを取得します: ${targets.map((t) => `${t.type}:${t.id}`).join(', ')}`
-    );
+    log.info('複数ターゲットからイベントを取得します', {
+      count: targets.length,
+      targets: targets.map((t) => `${t.type}:${t.id}`),
+    });
 
     const results = await Promise.allSettled(
       targets.map((target) =>
@@ -139,21 +143,23 @@ export class GaroonClient {
     const eventMap = new Map<string, GaroonEvent>();
     results.forEach((result, index) => {
       if (result.status === 'fulfilled') {
-        console.log(
-          `${targets[index].type}:${targets[index].id} から ${result.value.length} 件のイベントを取得`
-        );
+        log.info('イベントを取得しました', {
+          target: `${targets[index].type}:${targets[index].id}`,
+          count: result.value.length,
+        });
         for (const event of result.value) {
           eventMap.set(event.id, event);
         }
       } else {
-        console.error(
-          `${targets[index].type}:${targets[index].id} からのイベント取得に失敗: ${result.reason}`
-        );
+        log.error('イベント取得に失敗しました', {
+          target: `${targets[index].type}:${targets[index].id}`,
+          error: result.reason,
+        });
       }
     });
 
     const allEvents = Array.from(eventMap.values());
-    console.log(`合計 ${allEvents.length} 件のユニークなイベント`);
+    log.info('ユニークなイベントをマージしました', { count: allEvents.length });
     return allEvents;
   }
 
@@ -187,10 +193,11 @@ export class GaroonClient {
           requestParams.nextEventId = nextEventId;
         }
 
-        const response = await withRetry(() =>
-          this.client.get<GaroonScheduleResponse>(endpoint, {
+        const response = await withRetry(
+          () => this.client.get<GaroonScheduleResponse>(endpoint, {
             params: requestParams,
-          })
+          }),
+          { operationName: 'ガルーンスケジュール取得' }
         );
         const {
           events,
@@ -235,8 +242,9 @@ export class GaroonClient {
   async getEvent(eventId: string): Promise<GaroonEvent> {
     try {
       const endpoint = `/api/v1/schedule/events/${eventId}`;
-      const response = await withRetry(() =>
-        this.client.get<GaroonEvent>(endpoint)
+      const response = await withRetry(
+        () => this.client.get<GaroonEvent>(endpoint),
+        { operationName: 'ガルーンイベント取得' }
       );
       return response.data;
     } catch (error) {
@@ -270,16 +278,19 @@ export class GaroonClient {
       };
 
       const endpoint = '/api/v1/schedule/events';
-      await withRetry(() => this.client.get(endpoint, { params }));
+      await withRetry(
+        () => this.client.get(endpoint, { params }),
+        { operationName: 'ガルーン接続テスト' }
+      );
 
       return true;
     } catch (error) {
-      console.error('[GaroonClient] 接続テストに失敗しました:', error);
+      log.error('接続テストに失敗しました', { error });
       if (axios.isAxiosError(error)) {
         if (error.response) {
-          console.error(`[GaroonClient] ステータスコード: ${error.response.status}`);
+          log.error('ステータスコード', { status: error.response.status });
         } else if (error.request) {
-          console.error('[GaroonClient] サーバーに接続できませんでした');
+          log.error('サーバーに接続できませんでした');
         }
       }
       throw error;

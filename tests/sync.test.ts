@@ -2,6 +2,8 @@ import {
   formatDate,
   findExistingEvent,
   convertGaroonToGoogleEvent,
+  getDisplayTitle,
+  isAllDayEvent,
 } from '../src/google/sync';
 import { GoogleEvent } from '../src/types/google';
 import { GaroonEvent } from '../src/types/garoon';
@@ -165,6 +167,100 @@ describe('sync', () => {
       };
       const result = convertGaroonToGoogleEvent(eventWithAttendees);
       expect(result.description).toContain('参加者: 田中太郎, 鈴木花子');
+    });
+
+    it('USER以外の参加者は説明文に含めない', () => {
+      const eventWithFacility = {
+        ...baseGaroonEvent,
+        attendees: [
+          { id: '1', type: 'FACILITY' as const, name: '会議室B' },
+          { id: '2', type: 'ORGANIZATION' as const, name: '開発部' },
+        ],
+      };
+      const result = convertGaroonToGoogleEvent(eventWithFacility);
+      expect(result.description).not.toContain('参加者');
+    });
+
+    it('notesがundefinedの場合は空文字列が説明文になる', () => {
+      const eventNoNotes = { ...baseGaroonEvent, notes: undefined };
+      const result = convertGaroonToGoogleEvent(eventNoNotes);
+      expect(result.description).toBe('');
+    });
+  });
+
+  describe('getDisplayTitle', () => {
+    const baseEvent: GaroonEvent = {
+      id: '1',
+      subject: 'ミーティング',
+      start: { dateTime: '2024-03-15T10:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      end: { dateTime: '2024-03-15T11:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      isAllDay: false,
+      attendees: [],
+      visibilityType: 'PUBLIC',
+      eventType: 'REGULAR',
+      updatedAt: '2024-03-15T09:00:00+09:00',
+      createdAt: '2024-03-14T09:00:00+09:00',
+    };
+
+    it('eventMenuがある場合は「メニュー: 件名」形式で返す', () => {
+      const event = { ...baseEvent, eventMenu: '外出' };
+      expect(getDisplayTitle(event)).toBe('外出: ミーティング');
+    });
+
+    it('eventMenuがundefinedの場合はsubjectのみ返す', () => {
+      expect(getDisplayTitle(baseEvent)).toBe('ミーティング');
+    });
+
+    it('eventMenuが空文字列の場合はsubjectのみ返す', () => {
+      const event = { ...baseEvent, eventMenu: '' };
+      expect(getDisplayTitle(event)).toBe('ミーティング');
+    });
+  });
+
+  describe('isAllDayEvent', () => {
+    const baseEvent: GaroonEvent = {
+      id: '1',
+      subject: 'テスト',
+      start: { dateTime: '2024-03-15T10:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      end: { dateTime: '2024-03-15T11:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      isAllDay: false,
+      attendees: [],
+      visibilityType: 'PUBLIC',
+      eventType: 'REGULAR',
+      updatedAt: '2024-03-15T09:00:00+09:00',
+      createdAt: '2024-03-14T09:00:00+09:00',
+    };
+
+    it('isAllDay=trueの場合はtrueを返す', () => {
+      const event = { ...baseEvent, isAllDay: true };
+      expect(isAllDayEvent(event)).toBe(true);
+    });
+
+    it('eventType=ALL_DAYの場合はtrueを返す', () => {
+      const event: GaroonEvent = { ...baseEvent, eventType: 'ALL_DAY' };
+      expect(isAllDayEvent(event)).toBe(true);
+    });
+
+    it('00:00:00〜23:59:59は終日イベントと判定する', () => {
+      const event = {
+        ...baseEvent,
+        start: { dateTime: '2024-03-15T00:00:00+09:00', timeZone: 'Asia/Tokyo' },
+        end: { dateTime: '2024-03-15T23:59:59+09:00', timeZone: 'Asia/Tokyo' },
+      };
+      expect(isAllDayEvent(event)).toBe(true);
+    });
+
+    it('00:00:00〜00:00:00は終日イベントと判定する', () => {
+      const event = {
+        ...baseEvent,
+        start: { dateTime: '2024-03-15T00:00:00+09:00', timeZone: 'Asia/Tokyo' },
+        end: { dateTime: '2024-03-16T00:00:00+09:00', timeZone: 'Asia/Tokyo' },
+      };
+      expect(isAllDayEvent(event)).toBe(true);
+    });
+
+    it('通常の時間帯イベントはfalseを返す', () => {
+      expect(isAllDayEvent(baseEvent)).toBe(false);
     });
   });
 });

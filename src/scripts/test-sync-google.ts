@@ -6,12 +6,13 @@ import { GoogleCalendarClient } from '../google/calendar';
 import { loadConfig } from '../common/config';
 import { syncEvents, formatDate } from '../google/sync';
 import { addDays } from 'date-fns';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'TestSyncGoogle' });
 
 async function main() {
   try {
-    console.log('========================================');
-    console.log('Garoon → Google Calendar 同期テスト開始');
-    console.log('========================================\n');
+    log.info('Garoon → Google Calendar 同期テスト開始');
 
     // コマンドライン引数
     const configArg = process.argv.find((arg) => arg.startsWith('--config='));
@@ -26,35 +27,32 @@ async function main() {
     const googleClient = new GoogleCalendarClient(config.google);
 
     // 1. 接続テスト
-    console.log('1. 接続テスト');
-    console.log('---------------');
+    log.info('接続テスト開始');
 
-    console.log('ガルーンAPIに接続中...');
+    log.info('ガルーンAPIに接続中...');
     await garoonClient.testConnection();
-    console.log('ガルーンAPI接続成功');
+    log.info('ガルーンAPI接続成功');
 
-    console.log('Google Calendar APIに接続中...');
+    log.info('Google Calendar APIに接続中...');
     const connected = await googleClient.testConnection();
     if (!connected) {
       throw new Error('Google Calendar API接続失敗');
     }
-    console.log('Google Calendar API接続成功');
+    log.info('Google Calendar API接続成功');
 
     // 2. データ取得プレビュー
-    console.log('\n2. データ取得テスト');
-    console.log('------------------');
+    log.info('データ取得テスト開始');
 
     const today = new Date();
     const startDate = formatDate(today);
     const endDate = formatDate(addDays(today, days));
-    console.log(`期間: ${startDate} ～ ${endDate} (${days}日間)`);
+    log.info('取得期間', { startDate, endDate, days });
 
-    console.log('\nガルーンからイベント取得中...');
+    log.info('ガルーンからイベント取得中...');
     const garoonEvents = await garoonClient.getSchedule(startDate, endDate);
-    console.log(`取得したガルーンイベント: ${garoonEvents.length}件`);
+    log.info('ガルーンイベント取得完了', { count: garoonEvents.length });
 
     if (garoonEvents.length > 0) {
-      console.log('\n--- ガルーンイベント一覧 ---');
       garoonEvents.forEach((event, index) => {
         const startTime = new Date(event.start.dateTime).toLocaleString('ja-JP');
         const endTime = new Date(event.end.dateTime).toLocaleString('ja-JP');
@@ -63,22 +61,24 @@ async function main() {
           ? `${event.eventMenu}: ${event.subject}`
           : event.subject;
 
-        console.log(`[${index + 1}] ${displayTitle} ${isPrivate ? '(非公開)' : ''}`);
-        console.log(`     ID: ${event.id}`);
-        console.log(`     期間: ${startTime} - ${endTime}`);
-        if (event.location) console.log(`     場所: ${event.location}`);
-        console.log(`     参加者: ${event.attendees.length}名`);
+        log.info(`[${index + 1}] ${displayTitle}`, {
+          id: event.id,
+          startTime,
+          endTime,
+          location: event.location || undefined,
+          attendees: event.attendees.length,
+          isPrivate,
+        });
       });
     }
 
     if (testOnly) {
-      console.log('\nテストモードのため、実際の同期は行いません');
+      log.info('テストモードのため、実際の同期は行いません');
       return;
     }
 
     // 3. 同期テスト実行
-    console.log('\n3. 同期テスト実行');
-    console.log('----------------');
+    log.info('同期テスト実行開始');
 
     const result = await syncEvents({
       garoonClient,
@@ -87,29 +87,22 @@ async function main() {
       excludePrivate: config.sync.excludePrivate,
     });
 
-    console.log('\n========================================');
-    console.log('同期テスト結果');
-    console.log('========================================');
-    console.log(`処理したイベント: ${result.total}件`);
-    console.log(`  新規作成: ${result.created}件`);
-    console.log(`  更新: ${result.updated}件`);
-    console.log(`  スキップ: ${result.skipped}件`);
-    console.log(`  エラー: ${result.errors}件`);
+    log.info('同期テスト結果', {
+      total: result.total,
+      created: result.created,
+      updated: result.updated,
+      skipped: result.skipped,
+      errors: result.errors,
+    });
 
     if (result.errors > 0) {
-      console.log('一部のイベントで同期エラーが発生しました');
+      log.warn('一部のイベントで同期エラーが発生しました');
     }
   } catch (error) {
-    console.error('\nテスト実行中にエラーが発生しました:');
-    if (error instanceof Error) {
-      console.error(error.message);
-      if (error.stack) {
-        console.error('\nスタックトレース:');
-        console.error(error.stack);
-      }
-    } else {
-      console.error(error);
-    }
+    log.error('テスト実行中にエラーが発生しました', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     process.exit(1);
   }
 }

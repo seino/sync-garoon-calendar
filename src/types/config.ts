@@ -8,10 +8,6 @@ export interface TeamsConfig {
   notifyOnError: boolean;
 }
 
-export interface DatabaseConfig {
-  path: string;
-}
-
 export interface SyncConfig {
   days: number;
   excludePrivate: boolean;
@@ -24,5 +20,4 @@ export interface AppConfig {
   google: GoogleCalendarConfig;
   sync: SyncConfig;
   teams: TeamsConfig;
-  database: DatabaseConfig;
 }

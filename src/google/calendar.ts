@@ -6,6 +6,9 @@ import fs from 'fs';
 import path from 'path';
 import { GoogleCalendarConfig, GoogleEvent } from '../types/google';
 import { withRetry } from '../common/retry';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'GoogleCalendar' });
 
 export class GoogleCalendarClient {
   private calendar: calendar_v3.Calendar;
@@ -32,10 +35,9 @@ export class GoogleCalendarClient {
    * イベントを作成する
    */
   async createEvent(event: GoogleEvent): Promise<string> {
-    return withRetry(async () => {
-      try {
+    try {
+      return await withRetry(async () => {
         const requestBody = this.convertToRequestBody(event);
-
         const response = await this.calendar.events.insert({
           calendarId: this.calendarId,
           requestBody,
@@ -47,54 +49,54 @@ export class GoogleCalendarClient {
         }
 
         return response.data.id;
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          throw new Error(`イベントの作成に失敗しました: ${error.message}`);
-        }
-        throw new Error('イベントの作成に失敗しました: 不明なエラー');
+      }, { operationName: 'イベント作成' });
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw new Error(`イベントの作成に失敗しました: ${error.message}`);
       }
-    });
+      throw new Error('イベントの作成に失敗しました: 不明なエラー');
+    }
   }
 
   /**
    * イベントを更新する
    */
   async updateEvent(eventId: string, event: GoogleEvent): Promise<void> {
-    return withRetry(async () => {
-      try {
+    try {
+      await withRetry(async () => {
         await this.calendar.events.update({
           calendarId: this.calendarId,
           eventId: eventId,
           requestBody: this.convertToRequestBody(event),
           sendUpdates: 'none',
         });
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          throw new Error(`イベントの更新に失敗しました: ${error.message}`);
-        }
-        throw new Error('イベントの更新に失敗しました: 不明なエラー');
+      }, { operationName: 'イベント更新' });
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw new Error(`イベントの更新に失敗しました: ${error.message}`);
       }
-    });
+      throw new Error('イベントの更新に失敗しました: 不明なエラー');
+    }
   }
 
   /**
    * イベントを削除する
    */
   async deleteEvent(eventId: string): Promise<void> {
-    return withRetry(async () => {
-      try {
+    try {
+      await withRetry(async () => {
         await this.calendar.events.delete({
           calendarId: this.calendarId,
           eventId: eventId,
           sendUpdates: 'none',
         });
-      } catch (error: unknown) {
-        if (error instanceof Error) {
-          throw new Error(`イベントの削除に失敗しました: ${error.message}`);
-        }
-        throw new Error('イベントの削除に失敗しました: 不明なエラー');
+      }, { operationName: 'イベント削除' });
+    } catch (error: unknown) {
+      if (error instanceof Error) {
+        throw new Error(`イベントの削除に失敗しました: ${error.message}`);
       }
-    });
+      throw new Error('イベントの削除に失敗しました: 不明なエラー');
+    }
   }
 
   /**
@@ -129,16 +131,25 @@ export class GoogleCalendarClient {
    */
   async listEvents(start: Date, end: Date): Promise<GoogleEvent[]> {
     try {
-      const response = await this.calendar.events.list({
-        calendarId: this.calendarId,
-        timeMin: start.toISOString(),
-        timeMax: end.toISOString(),
-        singleEvents: true,
-        orderBy: 'startTime',
-      });
+      const allEvents: GoogleEvent[] = [];
+      let pageToken: string | undefined;
 
-      const items = response.data.items || [];
-      return items.map((item) => this.convertFromApiResponse(item));
+      do {
+        const response = await this.calendar.events.list({
+          calendarId: this.calendarId,
+          timeMin: start.toISOString(),
+          timeMax: end.toISOString(),
+          singleEvents: true,
+          orderBy: 'startTime',
+          pageToken,
+        });
+
+        const items = response.data.items || [];
+        allEvents.push(...items.map((item) => this.convertFromApiResponse(item)));
+        pageToken = response.data.nextPageToken || undefined;
+      } while (pageToken);
+
+      return allEvents;
     } catch (error: unknown) {
       if (error instanceof Error) {
         throw new Error(`イベントの取得に失敗しました: ${error.message}`);
@@ -179,7 +190,7 @@ export class GoogleCalendarClient {
 
       return true;
     } catch (error) {
-      console.error('[GoogleCalendarClient] 接続テストエラー:', error);
+      log.error('接続テストエラー', { error });
       return false;
     }
   }

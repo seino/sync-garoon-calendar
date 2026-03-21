@@ -5,6 +5,9 @@ import { GaroonClient } from '../common/garoon';
 import { GoogleCalendarClient } from './calendar';
 import { GaroonEvent } from '../types/garoon';
 import { GoogleEvent } from '../types/google';
+import { logger } from '../common/logger';
+
+const log = logger.child({ module: 'Sync' });
 
 export interface SyncOptions {
   garoonClient: GaroonClient;
@@ -18,12 +21,38 @@ export interface SyncResult {
   total: number;
   created: number;
   updated: number;
+  deleted: number;
   skipped: number;
   errors: number;
 }
 
 export function formatDate(date: Date): string {
   return format(date, 'yyyy-MM-dd');
+}
+
+/**
+ * ガルーンイベントの表示用タイトルを取得する
+ */
+export function getDisplayTitle(event: GaroonEvent): string {
+  return event.eventMenu
+    ? `${event.eventMenu}: ${event.subject}`
+    : event.subject;
+}
+
+/**
+ * ガルーンイベントが終日イベントかどうかを判定する
+ */
+export function isAllDayEvent(event: GaroonEvent): boolean {
+  if (event.isAllDay || event.eventType === 'ALL_DAY') {
+    return true;
+  }
+
+  const startTime = event.start.dateTime.split('T')[1] || '';
+  const endTime = event.end.dateTime.split('T')[1] || '';
+  return (
+    startTime.startsWith('00:00:00') &&
+    (endTime.startsWith('00:00:00') || endTime.startsWith('23:59:59'))
+  );
 }
 
 /**
@@ -53,26 +82,12 @@ export function findExistingEvent(
  * GaroonイベントをGoogleEvent形式に変換する
  */
 export function convertGaroonToGoogleEvent(garoonEvent: GaroonEvent): GoogleEvent {
-  const summary = garoonEvent.eventMenu
-    ? `${garoonEvent.eventMenu}: ${garoonEvent.subject}`
-    : garoonEvent.subject;
-
-  // 終日イベントの判定
-  const startTime = garoonEvent.start.dateTime.split('T')[1] || '';
-  const endTime = garoonEvent.end.dateTime.split('T')[1] || '';
-  const hasNoTime =
-    startTime.startsWith('00:00:00') &&
-    (endTime.startsWith('00:00:00') || endTime.startsWith('23:59:59'));
-
-  const isAllDay =
-    garoonEvent.isAllDay ||
-    garoonEvent.eventType === 'ALL_DAY' ||
-    hasNoTime;
+  const summary = getDisplayTitle(garoonEvent);
 
   let start: GoogleEvent['start'];
   let end: GoogleEvent['end'];
 
-  if (isAllDay) {
+  if (isAllDayEvent(garoonEvent)) {
     const startDate = garoonEvent.start.dateTime.split('T')[0];
     const endDateRaw = garoonEvent.end.dateTime.split('T')[0];
     // Google Calendar の終日イベントは終了日が「翌日」である必要がある
@@ -133,53 +148,47 @@ export async function syncEvents(options: SyncOptions): Promise<SyncResult> {
   const startDate = formatDate(today);
   const endDate = formatDate(addDays(today, days));
 
-  console.log(`同期期間: ${startDate} ～ ${endDate} (${days}日間)`);
+  log.info('同期期間', { startDate, endDate, days });
 
   // ガルーンからイベント取得
-  console.log('ガルーンからスケジュール取得中...');
+  log.info('ガルーンからスケジュール取得中...');
   const garoonEvents = await garoonClient.getSchedule(startDate, endDate);
-  console.log(`ガルーンイベント: ${garoonEvents.length}件`);
+  log.info('ガルーンイベント取得完了', { count: garoonEvents.length });
 
   if (garoonEvents.length === 0) {
-    console.log('この期間にガルーンのイベントがありません。');
-    return { total: 0, created: 0, updated: 0, skipped: 0, errors: 0 };
+    log.info('この期間にガルーンのイベントがありません');
+    return { total: 0, created: 0, updated: 0, deleted: 0, skipped: 0, errors: 0 };
   }
 
   // Googleカレンダーから既存イベント取得（前後1週間広めに検索）
-  console.log('Googleカレンダーから既存イベント取得中...');
+  log.info('Googleカレンダーから既存イベント取得中...');
   const googleSearchStart = new Date(today);
   googleSearchStart.setDate(googleSearchStart.getDate() - 7);
   const googleSearchEnd = addDays(today, days + 7);
 
   const googleEvents = await googleClient.listEvents(googleSearchStart, googleSearchEnd);
-  console.log(`Googleイベント: ${googleEvents.length}件\n`);
+  log.info('Googleイベント取得完了', { count: googleEvents.length });
 
   if (dryRun) {
-    console.log('ドライランモードのため、実際の同期は行いません');
+    log.info('ドライランモードのため、実際の同期は行いません');
     garoonEvents.forEach((event, index) => {
-      const displayTitle = event.eventMenu
-        ? `${event.eventMenu}: ${event.subject}`
-        : event.subject;
       const startTime = new Date(event.start.dateTime).toLocaleString('ja-JP');
-      console.log(`[${index + 1}] ${displayTitle} (${startTime})`);
+      log.info(`[${index + 1}] ${getDisplayTitle(event)}`, { startTime });
     });
-    return { total: garoonEvents.length, created: 0, updated: 0, skipped: 0, errors: 0 };
+    return { total: garoonEvents.length, created: 0, updated: 0, deleted: 0, skipped: 0, errors: 0 };
   }
 
-  console.log('同期実行中...');
-  console.log('----------------');
+  log.info('同期実行中...');
 
-  const result: SyncResult = { total: garoonEvents.length, created: 0, updated: 0, skipped: 0, errors: 0 };
+  const result: SyncResult = { total: garoonEvents.length, created: 0, updated: 0, deleted: 0, skipped: 0, errors: 0 };
   const processedGoogleEventIds = new Set<string>();
 
   for (const garoonEvent of garoonEvents) {
-    try {
-      const displayTitle = garoonEvent.eventMenu
-        ? `${garoonEvent.eventMenu}: ${garoonEvent.subject}`
-        : garoonEvent.subject;
+    const title = getDisplayTitle(garoonEvent);
 
+    try {
       if (excludePrivate && garoonEvent.visibilityType === 'PRIVATE') {
-        console.log(`スキップ: ${displayTitle} (非公開)`);
+        log.info('スキップ（非公開）', { title });
         result.skipped++;
         continue;
       }
@@ -188,22 +197,41 @@ export async function syncEvents(options: SyncOptions): Promise<SyncResult> {
       const existingEvent = findExistingEvent(googleEvents, garoonEvent.id, processedGoogleEventIds);
 
       if (existingEvent) {
-        console.log(`更新: ${displayTitle}`);
+        log.info('更新', { title });
         await googleClient.updateEvent(existingEvent.id!, googleEvent);
         processedGoogleEventIds.add(existingEvent.id!);
         result.updated++;
       } else {
-        console.log(`作成: ${displayTitle}`);
+        log.info('作成', { title });
         const newEventId = await googleClient.createEvent(googleEvent);
         processedGoogleEventIds.add(newEventId);
         result.created++;
       }
     } catch (error) {
       result.errors++;
-      const displayTitle = garoonEvent.eventMenu
-        ? `${garoonEvent.eventMenu}: ${garoonEvent.subject}`
-        : garoonEvent.subject;
-      console.error(`[SyncService] エラー: ${displayTitle} - ${error}`);
+      log.error('イベント同期エラー', { title, error });
+    }
+  }
+
+  // Garoon から削除されたイベントを Google Calendar からも削除
+  const garoonEventIds = new Set(garoonEvents.map((e) => e.id));
+  for (const googleEvent of googleEvents) {
+    const garoonId = googleEvent.extendedProperties?.private?.garoonEventId;
+    if (!garoonId || !googleEvent.id) {
+      continue;
+    }
+    if (processedGoogleEventIds.has(googleEvent.id)) {
+      continue;
+    }
+    if (!garoonEventIds.has(garoonId)) {
+      try {
+        log.info('削除（ガルーンから削除済み）', { summary: googleEvent.summary, garoonId });
+        await googleClient.deleteEvent(googleEvent.id);
+        result.deleted++;
+      } catch (error) {
+        result.errors++;
+        log.error('イベント削除エラー', { summary: googleEvent.summary, error });
+      }
     }
   }
 
