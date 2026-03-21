@@ -2,6 +2,7 @@
   "name": "sync-garoon-calendar",
   "version": "1.0.0",
   "description": "ガルーンのスケジュールを外部カレンダーサービスと同期",
+  "license": "MIT",
   "main": "dist/scripts/sync-google.js",
   "scripts": {
     "build": "tsc",
